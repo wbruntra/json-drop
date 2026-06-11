@@ -1,0 +1,17 @@
+{
+  "name": "2026-06-11-json-drop",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "jose": "^6.2.3",
+    "preact": "^10.29.2",
+    "short-uuid": "^6.0.3"
+  }
+}
