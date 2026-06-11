@@ -1,0 +1,1 @@
+curl https://json-drop.bruntrager.win/api/docs/5by1DTN1Jg4wFocP5DaiPy
