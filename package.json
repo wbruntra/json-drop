@@ -1,10 +1,26 @@
 {
-  "name": "2026-06-11-json-drop",
+  "name": "json-drop",
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "dev": "NODE_ENV=development bun --hot index.ts",
+    "start": "bun index.ts",
+    "migrate": "bun migrate.ts",
+    "build:frontend": "bun build frontend/index.html --outdir frontend/dist --minify && cp -r frontend/public/* frontend/dist/",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky",
+    "test": "bun test"
+  },
+  "lint-staged": {
+    "**/*": "prettier --write --ignore-unknown"
+  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
+    "prettier": "^3.8.4"
   },
   "peerDependencies": {
     "typescript": "^5"

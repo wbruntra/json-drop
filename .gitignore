@@ -6,14 +6,25 @@ out
 dist
 *.tgz
 
+# database
+db.sqlite
+db.sqlite-wal
+db.sqlite-shm
+test.sqlite
+test.sqlite-wal
+test.sqlite-shm
+
+# frontend build
+frontend/dist
+
 # code coverage
 coverage
 *.lcov
 
 # logs
 logs
-_.log
-report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
+*.log
+report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # dotenv environment variable files
 .env

@@ -1,0 +1,8 @@
+node_modules
+dist
+db.sqlite
+db.sqlite-wal
+db.sqlite-shm
+bun.lock
+*.min.js
+*.min.css

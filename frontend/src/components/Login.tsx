@@ -1,7 +1,7 @@
 export function Login() {
   const handleLogin = () => {
-    window.location.href = "/api/auth/github";
-  };
+    window.location.href = '/api/auth/github'
+  }
 
   return (
     <div class="app">
@@ -14,5 +14,5 @@ export function Login() {
         </button>
       </div>
     </div>
-  );
+  )
 }

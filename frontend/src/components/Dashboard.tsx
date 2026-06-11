@@ -1,23 +1,23 @@
-import { TokenManager } from "./TokenManager";
-import { DocManager } from "./DocManager";
+import { TokenManager } from './TokenManager'
+import { DocManager } from './DocManager'
 
 type User = {
-  id: number;
-  github_id: string;
-  email: string | null;
-  display_name: string | null;
-};
+  id: number
+  github_id: string
+  email: string | null
+  display_name: string | null
+}
 
 type Props = {
-  user: User;
-  onLogout: () => void;
-};
+  user: User
+  onLogout: () => void
+}
 
 export function Dashboard({ user, onLogout }: Props) {
   const handleLogout = async () => {
-    await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
-    onLogout();
-  };
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+    onLogout()
+  }
 
   return (
     <div class="app">
@@ -43,5 +43,5 @@ export function Dashboard({ user, onLogout }: Props) {
         </section>
       </main>
     </div>
-  );
+  )
 }

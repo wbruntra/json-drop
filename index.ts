@@ -1,68 +1,130 @@
-import "./database";
-import { extractAuth, checkRateLimit, getRateLimitKey, jsonResponse, corsHeaders } from "./middleware";
-import { handleGitHubAuth, handleGitHubCallback, handleLogout } from "./routes/auth";
-import { handleMe } from "./routes/me";
-import { handleCreateToken, handleListTokens, handleDeleteToken } from "./routes/tokens";
-import { handleCreateDoc, handleListDocs, handleGetDoc, handleUpdateDoc, handleDeleteDoc } from "./routes/docs";
+import './database'
+import {
+  extractAuth,
+  checkRateLimit,
+  getRateLimitKey,
+  jsonResponse,
+  corsHeaders,
+  withMiddleware,
+  method,
+} from './middleware'
+import { handleGitHubAuth, handleGitHubCallback, handleLogout } from './routes/auth'
+import { handleMe } from './routes/me'
+import { handleCreateToken, handleListTokens, handleDeleteToken } from './routes/tokens'
+import {
+  handleCreateDoc,
+  handleListDocs,
+  handleGetDoc,
+  handleUpdateDoc,
+  handleDeleteDoc,
+} from './routes/docs'
+import { handleDevLogin, handleDevCreateToken } from './routes/dev'
+import homepage from './frontend/index.html'
+
+type BunRequest = Request & { params: Record<string, string> }
+
+const isDev = process.env.NODE_ENV === 'development'
 
 const server = Bun.serve({
   port: process.env.PORT || 3000,
 
-  async fetch(req) {
-    const url = new URL(req.url);
-    const path = url.pathname;
+  routes: {
+    '/': homepage,
 
-    if (req.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders() });
-    }
+    '/api/auth/github': withMiddleware(method('GET', handleGitHubAuth)),
+    '/gh/callback': withMiddleware(method('GET', handleGitHubCallback)),
+    '/api/auth/logout': withMiddleware(method('POST', handleLogout)),
 
-    const rateLimitKey = getRateLimitKey(req);
-    if (!checkRateLimit(rateLimitKey)) {
-      return jsonResponse({ error: "Too many requests" }, 429, { "Retry-After": "60" });
-    }
+    '/api/me': withMiddleware(
+      method('GET', async (req) => {
+        const auth = await extractAuth(req)
+        return handleMe(auth)
+      }),
+    ),
 
-    const auth = await extractAuth(req);
+    '/api/tokens': withMiddleware(
+      method('POST', async (req) => {
+        const auth = await extractAuth(req)
+        return handleCreateToken(req, auth)
+      }),
+      method('GET', async (req) => {
+        const auth = await extractAuth(req)
+        return handleListTokens(auth)
+      }),
+    ),
+    '/api/tokens/:id': withMiddleware(
+      method('DELETE', async (req) => {
+        const auth = await extractAuth(req)
+        const bunReq = req as BunRequest
+        const id = bunReq.params.id
+        if (!id) return jsonResponse({ error: 'Invalid token ID' }, 400)
+        return handleDeleteToken(req, auth, id)
+      }),
+    ),
 
-    if (path === "/api/auth/github" && req.method === "GET") {
-      return handleGitHubAuth(req);
-    }
+    '/api/docs': withMiddleware(
+      method('POST', async (req) => {
+        const auth = await extractAuth(req)
+        return handleCreateDoc(req, auth)
+      }),
+      method('GET', async (req) => {
+        const auth = await extractAuth(req)
+        return handleListDocs(auth)
+      }),
+    ),
+    '/api/docs/:id': withMiddleware(
+      method('GET', async (req) => {
+        const auth = await extractAuth(req)
+        const bunReq = req as BunRequest
+        const id = bunReq.params.id
+        if (!id) return jsonResponse({ error: 'Invalid document ID' }, 400)
+        return handleGetDoc(req, auth, id)
+      }),
+      method('PUT', async (req) => {
+        const auth = await extractAuth(req)
+        const bunReq = req as BunRequest
+        const id = bunReq.params.id
+        if (!id) return jsonResponse({ error: 'Invalid document ID' }, 400)
+        return handleUpdateDoc(req, auth, id)
+      }),
+      method('DELETE', async (req) => {
+        const auth = await extractAuth(req)
+        const bunReq = req as BunRequest
+        const id = bunReq.params.id
+        if (!id) return jsonResponse({ error: 'Invalid document ID' }, 400)
+        return handleDeleteDoc(req, auth, id)
+      }),
+    ),
 
-    if (path === "/gh/callback" && req.method === "GET") {
-      return handleGitHubCallback(req);
-    }
-
-    if (path === "/api/auth/logout" && req.method === "POST") {
-      return handleLogout();
-    }
-
-    if (path === "/api/me" && req.method === "GET") {
-      return handleMe(auth);
-    }
-
-    if (path === "/api/tokens") {
-      if (req.method === "POST") return handleCreateToken(req, auth);
-      if (req.method === "GET") return handleListTokens(auth);
-    }
-
-    if (path.startsWith("/api/tokens/") && req.method === "DELETE") {
-      const tokenId = path.split("/").pop()!;
-      return handleDeleteToken(req, auth, tokenId);
-    }
-
-    if (path === "/api/docs") {
-      if (req.method === "POST") return handleCreateDoc(req, auth);
-      if (req.method === "GET") return handleListDocs(auth);
-    }
-
-    if (path.startsWith("/api/docs/")) {
-      const docId = path.split("/").pop()!;
-      if (req.method === "GET") return handleGetDoc(req, auth, docId);
-      if (req.method === "PUT") return handleUpdateDoc(req, auth, docId);
-      if (req.method === "DELETE") return handleDeleteDoc(req, auth, docId);
-    }
-
-    return jsonResponse({ error: "Not found" }, 404);
+    '/api/dev/login': withMiddleware(method('GET', handleDevLogin)),
+    '/api/dev/token': withMiddleware(method('POST', handleDevCreateToken)),
   },
-});
 
-console.log(`Listening on http://localhost:${server.port}`);
+  development: isDev
+    ? {
+        hmr: true,
+        console: true,
+      }
+    : false,
+
+  async fetch(req) {
+    if (req.method === 'OPTIONS') {
+      return new Response(null, { status: 204, headers: corsHeaders() })
+    }
+
+    const rateLimitKey = getRateLimitKey(req)
+    if (!checkRateLimit(rateLimitKey)) {
+      return jsonResponse({ error: 'Too many requests' }, 429, {
+        'Retry-After': '60',
+      })
+    }
+
+    return jsonResponse({ error: 'Not found' }, 404)
+  },
+})
+
+console.log(`Listening on http://localhost:${server.port}`)
+if (isDev) {
+  console.log('Dev mode enabled')
+  console.log('Dev endpoints: /api/dev/login, /api/dev/token')
+}
