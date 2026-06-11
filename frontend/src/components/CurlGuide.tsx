@@ -31,9 +31,15 @@ export function CurlGuide() {
               curl
             </button>
             <button class={lang === 'js' ? 'active' : ''} onClick={() => setLang('js')}>
-              JavaScript fetch
+              JavaScript (axios)
             </button>
           </div>
+
+          {lang === 'js' && (
+            <p class="guide-intro">
+              Install: <code>bun add axios</code> or <code>npm install axios</code>
+            </p>
+          )}
 
           <h4>Authentication</h4>
           <div class="curl-block">
@@ -53,10 +59,9 @@ export function CurlGuide() {
               </pre>
             ) : (
               <pre>
-                <code>{`const res = await fetch('${baseUrl}/api/me', {
-  headers: { Authorization: \`Bearer \${token}\` }
-})
-const user = await res.json()`}</code>
+                <code>{`const { data: user } = await axios.get('${baseUrl}/api/me', {
+  headers: { Authorization: \`Bearer ${token}\` }
+})`}</code>
               </pre>
             )}
           </div>
@@ -73,16 +78,12 @@ const user = await res.json()`}</code>
               </pre>
             ) : (
               <pre>
-                <code>{`const res = await fetch('${baseUrl}/api/tokens', {
-  method: 'POST',
-  headers: {
-    Authorization: \`Bearer \${token}\`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({ name: 'my-token', permissions: 'read_write' })
-})
-const data = await res.json()
-// data.token — store this, won't be shown again`}</code>
+                <code>{`const { data } = await axios.post(
+  '${baseUrl}/api/tokens',
+  { name: 'my-token', permissions: 'read_write' },
+  { headers: { Authorization: \`Bearer ${token}\` } }
+)
+// data.token — your new API token`}</code>
               </pre>
             )}
             <span class="curl-note">
@@ -106,14 +107,13 @@ curl -X DELETE ${baseUrl}/api/tokens/123 \\
             ) : (
               <pre>
                 <code>{`// list
-const res = await fetch('${baseUrl}/api/tokens', {
-  headers: { Authorization: \`Bearer \${token}\` }
+const { data: tokens } = await axios.get('${baseUrl}/api/tokens', {
+  headers: { Authorization: \`Bearer ${token}\` }
 })
 
 // revoke
-await fetch('${baseUrl}/api/tokens/123', {
-  method: 'DELETE',
-  headers: { Authorization: \`Bearer \${token}\` }
+await axios.delete('${baseUrl}/api/tokens/123', {
+  headers: { Authorization: \`Bearer ${token}\` }
 })`}</code>
               </pre>
             )}
@@ -138,19 +138,16 @@ curl -X POST ${baseUrl}/api/docs \\
               </pre>
             ) : (
               <pre>
-                <code>{`const res = await fetch('${baseUrl}/api/docs', {
-  method: 'POST',
-  headers: {
-    Authorization: \`Bearer \${token}\`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({
+                <code>{`const { data } = await axios.post(
+  '${baseUrl}/api/docs',
+  {
     name: 'config',
     content: { theme: 'dark' },
     access_mode: 'public'
-  })
-})
-const { id, access_secret } = await res.json()
+  },
+  { headers: { Authorization: \`Bearer ${token}\` } }
+)
+const { id, access_secret } = data
 // save access_secret — won't be shown again`}</code>
               </pre>
             )}
@@ -182,21 +179,22 @@ curl ${baseUrl}/api/docs \\
             ) : (
               <pre>
                 <code>{`// public (no auth)
-const res = await fetch('${baseUrl}/api/docs/${docId}')
+const { data } = await axios.get('${baseUrl}/api/docs/${docId}')
 
 // private with secret
-const res = await fetch('${baseUrl}/api/docs/${docId}?secret=${secret}')
+const { data } = await axios.get('${baseUrl}/api/docs/${docId}', {
+  params: { secret: '${secret}' }
+})
 
 // as owner
-const res = await fetch('${baseUrl}/api/docs/${docId}', {
-  headers: { Authorization: \`Bearer \${token}\` }
+const { data } = await axios.get('${baseUrl}/api/docs/${docId}', {
+  headers: { Authorization: \`Bearer ${token}\` }
 })
 
 // list all yours (includes storage info)
-const res = await fetch('${baseUrl}/api/docs', {
-  headers: { Authorization: \`Bearer \${token}\` }
-})
-const { docs, storage } = await res.json()`}</code>
+const { data: { docs, storage } } = await axios.get('${baseUrl}/api/docs', {
+  headers: { Authorization: \`Bearer ${token}\` }
+})`}</code>
               </pre>
             )}
           </div>
@@ -220,21 +218,18 @@ curl -X PUT '${baseUrl}/api/docs/${docId}?secret=${secret}' \\
             ) : (
               <pre>
                 <code>{`// as owner
-await fetch('${baseUrl}/api/docs/${docId}', {
-  method: 'PUT',
-  headers: {
-    Authorization: \`Bearer \${token}\`,
-    'Content-Type': 'application/json'
-  },
-  body: JSON.stringify({ name: 'new-name', content: { updated: true } })
-})
+const { data } = await axios.put(
+  '${baseUrl}/api/docs/${docId}',
+  { name: 'new-name', content: { updated: true } },
+  { headers: { Authorization: \`Bearer ${token}\` } }
+)
 
 // with secret
-await fetch('${baseUrl}/api/docs/${docId}?secret=${secret}', {
-  method: 'PUT',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({ content: { updated: true } })
-})`}</code>
+const { data } = await axios.put(
+  '${baseUrl}/api/docs/${docId}',
+  { content: { updated: true } },
+  { params: { secret: '${secret}' } }
+)`}</code>
               </pre>
             )}
           </div>
@@ -249,9 +244,8 @@ await fetch('${baseUrl}/api/docs/${docId}?secret=${secret}', {
               </pre>
             ) : (
               <pre>
-                <code>{`await fetch('${baseUrl}/api/docs/${docId}', {
-  method: 'DELETE',
-  headers: { Authorization: \`Bearer \${token}\` }
+                <code>{`await axios.delete('${baseUrl}/api/docs/${docId}', {
+  headers: { Authorization: \`Bearer ${token}\` }
 })`}</code>
               </pre>
             )}

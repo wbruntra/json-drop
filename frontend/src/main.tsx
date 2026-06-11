@@ -3,3 +3,7 @@ import './index.css'
 import { App } from './app'
 
 render(<App />, document.getElementById('app')!)
+
+if (import.meta.hot) {
+  import.meta.hot.accept()
+}
