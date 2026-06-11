@@ -32,6 +32,7 @@ export type Document = {
   content: string
   access_mode: string
   access_secret: string | null
+  size_bytes: number
   created_at: string
   updated_at: string
 }
@@ -96,12 +97,13 @@ export function createDocument(
   content: string,
   accessMode: string,
   accessSecret: string | null,
+  sizeBytes: number,
 ): Document {
   const stmt = db.prepare(
-    `INSERT INTO documents (id, user_id, name, content, access_mode, access_secret)
-     VALUES (?, ?, ?, ?, ?, ?) RETURNING *`,
+    `INSERT INTO documents (id, user_id, name, content, access_mode, access_secret, size_bytes)
+     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`,
   )
-  return stmt.get(id, userId, name, content, accessMode, accessSecret) as Document
+  return stmt.get(id, userId, name, content, accessMode, accessSecret, sizeBytes) as Document
 }
 
 export function getDocument(id: string): Document | null {
@@ -121,16 +123,24 @@ export function updateDocument(
   content: string,
   accessMode: string,
   accessSecret: string | null,
+  sizeBytes: number,
 ): Document | null {
   const result = db
     .prepare(
       `UPDATE documents
-     SET name = ?, content = ?, access_mode = ?, access_secret = ?, updated_at = CURRENT_TIMESTAMP
+     SET name = ?, content = ?, access_mode = ?, access_secret = ?, size_bytes = ?, updated_at = CURRENT_TIMESTAMP
      WHERE id = ? AND user_id = ?
      RETURNING *`,
     )
-    .get(name, content, accessMode, accessSecret, id, userId) as Document | null
+    .get(name, content, accessMode, accessSecret, sizeBytes, id, userId) as Document | null
   return result
+}
+
+export function getUserTotalSize(userId: number): number {
+  const result = db
+    .prepare('SELECT COALESCE(SUM(size_bytes), 0) as total FROM documents WHERE user_id = ?')
+    .get(userId) as { total: number }
+  return result.total
 }
 
 export function deleteDocument(id: string, userId: number): boolean {

@@ -1,4 +1,4 @@
-import { jsonResponse, hashToken, generateToken } from '../middleware'
+import { jsonResponse, generateToken, hashToken } from '../middleware'
 import { createApiToken, listApiTokens, revokeApiToken } from '../database'
 import type { AuthContext } from '../middleware'
 
@@ -25,7 +25,7 @@ export async function handleCreateToken(req: Request, auth: AuthContext): Promis
       token: rawToken,
       name,
       permissions,
-      message: 'Store this token now. It will not be shown again.',
+      message: 'Token created successfully',
     },
     201,
   )

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
+import { api, storeCreatedToken, getCreatedTokens } from '../api'
 
 type Token = {
   id: number
@@ -15,7 +16,7 @@ export function TokenManager() {
   const [loading, setLoading] = useState(true)
 
   const fetchTokens = async () => {
-    const res = await fetch('/api/tokens', { credentials: 'include' })
+    const res = await api('/api/tokens')
     if (res.ok) {
       const data = await res.json()
       setTokens(data)
@@ -30,15 +31,15 @@ export function TokenManager() {
   const handleCreate = async () => {
     if (!newToken.trim()) return
 
-    const res = await fetch('/api/tokens', {
+    const res = await api('/api/tokens', {
       method: 'POST',
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: newToken, permissions: newPermissions }),
     })
 
     if (res.ok) {
       const data = await res.json()
+      storeCreatedToken(data.token)
       setCreatedToken(data.token)
       setNewToken('')
       fetchTokens()
@@ -46,10 +47,7 @@ export function TokenManager() {
   }
 
   const handleDelete = async (id: number) => {
-    const res = await fetch(`/api/tokens/${id}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    })
+    const res = await api(`/api/tokens/${id}`, { method: 'DELETE' })
 
     if (res.ok) {
       fetchTokens()
@@ -62,20 +60,36 @@ export function TokenManager() {
 
   if (loading) return <div>Loading tokens...</div>
 
+  const storedTokens = getCreatedTokens()
+
   return (
     <div class="token-manager">
-      {createdToken && (
+      {storedTokens.length > 0 && (
         <div class="alert">
           <p>
-            <strong>New token created!</strong> Copy it now — it won't be shown again.
+            <strong>Your tokens</strong> — use these in API calls or the examples below.
           </p>
-          <code class="token-display">{createdToken}</code>
-          <button onClick={() => copyToClipboard(createdToken)} class="copy-btn">
-            Copy
-          </button>
-          <button onClick={() => setCreatedToken(null)} class="dismiss-btn">
-            Dismiss
-          </button>
+          {storedTokens.map((t, i) => (
+            <div key={i} class="token-row">
+              <code class="token-display">{t}</code>
+              <button onClick={() => copyToClipboard(t)} class="copy-btn">
+                Copy
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {createdToken && !storedTokens.includes(createdToken) && (
+        <div class="alert">
+          <p>
+            <strong>New token created!</strong>
+          </p>
+          <div class="token-row">
+            <code class="token-display">{createdToken}</code>
+            <button onClick={() => copyToClipboard(createdToken)} class="copy-btn">
+              Copy
+            </button>
+          </div>
         </div>
       )}
 

@@ -36,25 +36,25 @@ const server = Bun.serve({
     '/api/auth/logout': withMiddleware(method('POST', handleLogout)),
 
     '/api/me': withMiddleware(
-      method('GET', async (req) => {
-        const auth = await extractAuth(req)
+      method('GET', (req) => {
+        const auth = extractAuth(req)
         return handleMe(auth)
       }),
     ),
 
     '/api/tokens': withMiddleware(
       method('POST', async (req) => {
-        const auth = await extractAuth(req)
+        const auth = extractAuth(req)
         return handleCreateToken(req, auth)
       }),
-      method('GET', async (req) => {
-        const auth = await extractAuth(req)
+      method('GET', (req) => {
+        const auth = extractAuth(req)
         return handleListTokens(auth)
       }),
     ),
     '/api/tokens/:id': withMiddleware(
-      method('DELETE', async (req) => {
-        const auth = await extractAuth(req)
+      method('DELETE', (req) => {
+        const auth = extractAuth(req)
         const bunReq = req as BunRequest
         const id = bunReq.params.id
         if (!id) return jsonResponse({ error: 'Invalid token ID' }, 400)
@@ -64,31 +64,31 @@ const server = Bun.serve({
 
     '/api/docs': withMiddleware(
       method('POST', async (req) => {
-        const auth = await extractAuth(req)
+        const auth = extractAuth(req)
         return handleCreateDoc(req, auth)
       }),
-      method('GET', async (req) => {
-        const auth = await extractAuth(req)
+      method('GET', (req) => {
+        const auth = extractAuth(req)
         return handleListDocs(auth)
       }),
     ),
     '/api/docs/:id': withMiddleware(
-      method('GET', async (req) => {
-        const auth = await extractAuth(req)
+      method('GET', (req) => {
+        const auth = extractAuth(req)
         const bunReq = req as BunRequest
         const id = bunReq.params.id
         if (!id) return jsonResponse({ error: 'Invalid document ID' }, 400)
         return handleGetDoc(req, auth, id)
       }),
       method('PUT', async (req) => {
-        const auth = await extractAuth(req)
+        const auth = extractAuth(req)
         const bunReq = req as BunRequest
         const id = bunReq.params.id
         if (!id) return jsonResponse({ error: 'Invalid document ID' }, 400)
         return handleUpdateDoc(req, auth, id)
       }),
-      method('DELETE', async (req) => {
-        const auth = await extractAuth(req)
+      method('DELETE', (req) => {
+        const auth = extractAuth(req)
         const bunReq = req as BunRequest
         const id = bunReq.params.id
         if (!id) return jsonResponse({ error: 'Invalid document ID' }, 400)
@@ -107,7 +107,7 @@ const server = Bun.serve({
       }
     : false,
 
-  async fetch(req) {
+  fetch(req) {
     if (req.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders() })
     }

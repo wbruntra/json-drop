@@ -147,6 +147,18 @@ body {
   color: #7dd37d;
 }
 
+.token-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.35rem;
+}
+
+.token-row .token-display {
+  flex: 1;
+  margin: 0;
+}
+
 .copy-btn,
 .dismiss-btn {
   padding: 0.3rem 0.8rem;
@@ -291,4 +303,181 @@ body {
   font-style: italic;
   padding: 1rem;
   text-align: center;
+}
+
+/* Curl Guide */
+.curl-guide {
+  margin-top: 1rem;
+}
+
+.guide-header h3 {
+  font-size: 1.1rem;
+  color: #aaa;
+  cursor: pointer;
+  margin: 0;
+}
+
+.guide-header h3:hover {
+  color: #fff;
+}
+
+.guide-content {
+  margin-top: 1rem;
+}
+
+.guide-intro {
+  color: #888;
+  margin-bottom: 1.5rem;
+}
+
+.guide-intro code {
+  color: #7dd37d;
+  background: #1a1a1a;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+.lang-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.lang-toggle button {
+  padding: 0.3rem 0.8rem;
+  font-size: 0.8rem;
+  background: #1a1a1a;
+  color: #888;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.lang-toggle button.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.lang-toggle button:hover:not(.active) {
+  border-color: #444;
+  color: #ccc;
+}
+
+.guide-content h4 {
+  color: #ccc;
+  font-size: 1rem;
+  margin: 1.5rem 0 0.75rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid #222;
+}
+
+.curl-block {
+  margin-bottom: 0.75rem;
+  padding: 0.75rem;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+}
+
+.curl-label {
+  display: block;
+  color: #aaa;
+  font-size: 0.8rem;
+  margin-bottom: 0.35rem;
+}
+
+.curl-block pre {
+  margin: 0;
+  padding: 0.5rem;
+  background: #0a0a0a;
+  border-radius: 3px;
+  overflow-x: auto;
+}
+
+.curl-block code,
+.curl-block pre code {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82rem;
+  color: #7dd37d;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.curl-note {
+  display: block;
+  color: #666;
+  font-size: 0.75rem;
+  margin-top: 0.35rem;
+}
+
+.curl-note code {
+  color: #999;
+  background: #222;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+.guide-table {
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+
+.guide-row {
+  display: flex;
+  padding: 0.5rem 0.75rem;
+}
+
+.guide-row + .guide-row {
+  border-top: 1px solid #2a2a2a;
+}
+
+.guide-row-header {
+  background: #222;
+  font-weight: bold;
+  font-size: 0.8rem;
+  color: #ccc;
+}
+
+.guide-row span {
+  flex: 1;
+  font-size: 0.82rem;
+  color: #aaa;
+}
+
+.guide-row span code {
+  color: #7dd37d;
+  background: none;
+}
+
+/* Storage bar */
+.storage-bar {
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+}
+
+.storage-info {
+  font-size: 0.8rem;
+  color: #888;
+  margin-bottom: 0.35rem;
+}
+
+.storage-meter {
+  height: 4px;
+  background: #2a2a2a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.storage-fill {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 2px;
+  transition: width 0.3s ease;
 }

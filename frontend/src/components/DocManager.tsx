@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'preact/hooks'
+import { api } from '../api'
+
+const MAX_TOTAL = 10 * 1024 * 1024
 
 type Doc = {
   id: string
@@ -9,8 +12,15 @@ type Doc = {
   updated_at: string
 }
 
+type StorageInfo = {
+  used_bytes: number
+  used: string
+  limit: string
+}
+
 export function DocManager() {
   const [docs, setDocs] = useState<Doc[]>([])
+  const [storage, setStorage] = useState<StorageInfo | null>(null)
   const [newName, setNewName] = useState('')
   const [newContent, setNewContent] = useState('{}')
   const [newAccessMode, setNewAccessMode] = useState('public')
@@ -18,10 +28,11 @@ export function DocManager() {
   const [loading, setLoading] = useState(true)
 
   const fetchDocs = async () => {
-    const res = await fetch('/api/docs', { credentials: 'include' })
+    const res = await api('/api/docs')
     if (res.ok) {
       const data = await res.json()
-      setDocs(data)
+      setDocs(data.docs)
+      setStorage(data.storage)
     }
     setLoading(false)
   }
@@ -41,9 +52,8 @@ export function DocManager() {
       return
     }
 
-    const res = await fetch('/api/docs', {
+    const res = await api('/api/docs', {
       method: 'POST',
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: newName,
@@ -64,10 +74,7 @@ export function DocManager() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this document?')) return
 
-    const res = await fetch(`/api/docs/${id}`, {
-      method: 'DELETE',
-      credentials: 'include',
-    })
+    const res = await api(`/api/docs/${id}`, { method: 'DELETE' })
 
     if (res.ok) {
       fetchDocs()
@@ -128,19 +135,38 @@ export function DocManager() {
         {docs.length === 0 ? (
           <p class="empty">No documents yet. Create one above.</p>
         ) : (
-          docs.map((doc) => (
-            <div key={doc.id} class="doc-item">
-              <div class="doc-info">
-                <strong>{doc.name}</strong>
-                <span class="doc-id">ID: {doc.id}</span>
-                <span class="access-mode">{doc.access_mode}</span>
-                <pre class="doc-content">{JSON.stringify(doc.content, null, 2)}</pre>
+          <>
+            {storage && (
+              <div class="storage-bar">
+                <div class="storage-info">
+                  Storage: {storage.used}
+                  {' / '}
+                  {storage.limit}
+                </div>
+                <div class="storage-meter">
+                  <div
+                    class="storage-fill"
+                    style={{
+                      width: `${Math.min(100, (storage.used_bytes / MAX_TOTAL) * 100)}%`,
+                    }}
+                  />
+                </div>
               </div>
-              <button onClick={() => handleDelete(doc.id)} class="delete-btn">
-                Delete
-              </button>
-            </div>
-          ))
+            )}
+            {docs.map((doc) => (
+              <div key={doc.id} class="doc-item">
+                <div class="doc-info">
+                  <strong>{doc.name}</strong>
+                  <span class="doc-id">ID: {doc.id}</span>
+                  <span class="access-mode">{doc.access_mode}</span>
+                  <pre class="doc-content">{JSON.stringify(doc.content, null, 2)}</pre>
+                </div>
+                <button onClick={() => handleDelete(doc.id)} class="delete-btn">
+                  Delete
+                </button>
+              </div>
+            ))}
+          </>
         )}
       </div>
     </div>

@@ -1,13 +1,6 @@
-import {
-  getGitHubAuthUrl,
-  exchangeGitHubCode,
-  getGitHubUser,
-  createSession,
-  setSessionCookie,
-  generateState,
-} from '../auth'
-import { createUser } from '../database'
-import { jsonResponse, corsHeaders } from '../middleware'
+import { getGitHubAuthUrl, exchangeGitHubCode, getGitHubUser, generateState } from '../auth'
+import { createUser, createApiToken } from '../database'
+import { corsHeaders, generateToken, hashToken } from '../middleware'
 
 const pendingStates = new Map<string, number>()
 
@@ -63,15 +56,20 @@ export async function handleGitHubCallback(req: Request): Promise<Response> {
     const ghUser = await getGitHubUser(accessToken)
 
     const user = createUser(ghUser.id, ghUser.email, ghUser.name || ghUser.login)
-    const sessionToken = await createSession(user)
 
-    return new Response(null, {
-      status: 302,
-      headers: {
-        Location: frontendUrl,
-        'Set-Cookie': setSessionCookie(sessionToken),
-        ...corsHeaders(),
-      },
+    const rawToken = generateToken()
+    const tokenHash = hashToken(rawToken)
+    createApiToken(user.id, 'Default Token', tokenHash, 'admin')
+
+    const html = `<!doctype html>
+<html><body><script>
+localStorage.setItem('token', '${rawToken}')
+window.location.href = '${frontendUrl}'
+</script></body></html>`
+
+    return new Response(html, {
+      status: 200,
+      headers: { 'Content-Type': 'text/html', ...corsHeaders() },
     })
   } catch (e) {
     console.error('GitHub OAuth error:', e)
@@ -83,13 +81,13 @@ export async function handleGitHubCallback(req: Request): Promise<Response> {
 }
 
 export function handleLogout(): Response {
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
-  return new Response(null, {
-    status: 302,
-    headers: {
-      Location: frontendUrl,
-      'Set-Cookie': 'session=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0',
-      ...corsHeaders(),
-    },
+  const html = `<!doctype html>
+<html><body><script>
+localStorage.removeItem('token')
+window.location.href = '/'
+</script></body></html>`
+
+  return new Response(html, {
+    headers: { 'Content-Type': 'text/html', ...corsHeaders() },
   })
 }

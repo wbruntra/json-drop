@@ -6,10 +6,16 @@ import {
   listDocuments,
   updateDocument,
   deleteDocument,
+  getUserTotalSize,
 } from '../database'
 import type { AuthContext } from '../middleware'
+import { LIMITS } from '../limits'
 
 const translator = short.createTranslator()
+
+function contentSize(content: string): number {
+  return new TextEncoder().encode(content).byteLength
+}
 
 function canRead(
   auth: AuthContext,
@@ -41,6 +47,10 @@ function canWrite(
   return false
 }
 
+function formatMb(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 export async function handleCreateDoc(req: Request, auth: AuthContext): Promise<Response> {
   if (!auth.user) {
     return jsonResponse({ error: 'Not authenticated' }, 401)
@@ -55,10 +65,30 @@ export async function handleCreateDoc(req: Request, auth: AuthContext): Promise<
     return jsonResponse({ error: 'Invalid access_mode' }, 400)
   }
 
+  const size = contentSize(content)
+  if (size > LIMITS.maxDocSize) {
+    return jsonResponse(
+      {
+        error: `Document exceeds max size of ${formatMb(LIMITS.maxDocSize)}`,
+      },
+      413,
+    )
+  }
+
+  const currentTotal = getUserTotalSize(auth.user.id)
+  if (currentTotal + size > LIMITS.maxTotalSize) {
+    return jsonResponse(
+      {
+        error: `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
+      },
+      413,
+    )
+  }
+
   const accessSecret = accessMode !== 'public' ? crypto.randomUUID() : null
   const id = translator.generate()
 
-  const doc = createDocument(id, auth.user.id, name, content, accessMode, accessSecret)
+  const doc = createDocument(id, auth.user.id, name, content, accessMode, accessSecret, size)
 
   return jsonResponse(
     {
@@ -66,6 +96,7 @@ export async function handleCreateDoc(req: Request, auth: AuthContext): Promise<
       name: doc.name,
       access_mode: doc.access_mode,
       access_secret: doc.access_secret,
+      size_bytes: doc.size_bytes,
       created_at: doc.created_at,
       message: accessSecret
         ? 'Store the access_secret now. It will not be shown again.'
@@ -81,17 +112,24 @@ export function handleListDocs(auth: AuthContext): Response {
   }
 
   const docs = listDocuments(auth.user.id)
+  const total = getUserTotalSize(auth.user.id)
 
-  return jsonResponse(
-    docs.map((d) => ({
+  return jsonResponse({
+    docs: docs.map((d) => ({
       id: d.id,
       name: d.name,
       access_mode: d.access_mode,
       content: JSON.parse(d.content),
+      size_bytes: d.size_bytes,
       created_at: d.created_at,
       updated_at: d.updated_at,
     })),
-  )
+    storage: {
+      used_bytes: total,
+      used: formatMb(total),
+      limit: formatMb(LIMITS.maxTotalSize),
+    },
+  })
 }
 
 export async function handleGetDoc(
@@ -116,6 +154,7 @@ export async function handleGetDoc(
     name: doc.name,
     access_mode: doc.access_mode,
     content: JSON.parse(doc.content),
+    size_bytes: doc.size_bytes,
     created_at: doc.created_at,
     updated_at: doc.updated_at,
   })
@@ -147,12 +186,33 @@ export async function handleUpdateDoc(
     return jsonResponse({ error: 'Invalid access_mode' }, 400)
   }
 
+  const size = contentSize(content)
+  if (size > LIMITS.maxDocSize) {
+    return jsonResponse(
+      {
+        error: `Document exceeds max size of ${formatMb(LIMITS.maxDocSize)}`,
+      },
+      413,
+    )
+  }
+
+  const currentTotal = getUserTotalSize(doc.user_id)
+  const sizeDiff = size - doc.size_bytes
+  if (currentTotal + sizeDiff > LIMITS.maxTotalSize) {
+    return jsonResponse(
+      {
+        error: `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
+      },
+      413,
+    )
+  }
+
   let accessSecret = doc.access_secret
   if (accessMode !== doc.access_mode) {
     accessSecret = accessMode !== 'public' ? doc.access_secret || crypto.randomUUID() : null
   }
 
-  const updated = updateDocument(docId, doc.user_id, name, content, accessMode, accessSecret)
+  const updated = updateDocument(docId, doc.user_id, name, content, accessMode, accessSecret, size)
   if (!updated) {
     return jsonResponse({ error: 'Update failed' }, 500)
   }
@@ -163,6 +223,7 @@ export async function handleUpdateDoc(
     access_mode: updated.access_mode,
     access_secret: updated.access_secret,
     content: JSON.parse(updated.content),
+    size_bytes: updated.size_bytes,
     updated_at: updated.updated_at,
   })
 }

@@ -1,5 +1,6 @@
 import { TokenManager } from './TokenManager'
 import { DocManager } from './DocManager'
+import { CurlGuide } from './CurlGuide'
 
 type User = {
   id: number
@@ -14,8 +15,8 @@ type Props = {
 }
 
 export function Dashboard({ user, onLogout }: Props) {
-  const handleLogout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })
+  const handleLogout = () => {
+    localStorage.removeItem('token')
     onLogout()
   }
 
@@ -40,6 +41,10 @@ export function Dashboard({ user, onLogout }: Props) {
         <section class="section">
           <h2>Documents</h2>
           <DocManager />
+        </section>
+
+        <section class="section">
+          <CurlGuide />
         </section>
       </main>
     </div>

@@ -1,9 +1,13 @@
-import { verifySession } from './auth'
-import { getUser, getApiTokenByHash } from './database'
+import { getApiTokenByHash, getUser } from './database'
 import { createHash } from 'crypto'
 
 export type AuthContext = {
-  user: { id: number; github_id: string; email: string | null; display_name: string | null } | null
+  user: {
+    id: number
+    github_id: string
+    email: string | null
+    display_name: string | null
+  } | null
   tokenPermissions: string | null
 }
 
@@ -43,7 +47,7 @@ export function checkRateLimit(key: string): boolean {
   return true
 }
 
-export async function extractAuth(req: Request): Promise<AuthContext> {
+export function extractAuth(req: Request): AuthContext {
   const ctx: AuthContext = { user: null, tokenPermissions: null }
 
   const authHeader = req.headers.get('Authorization')
@@ -56,23 +60,6 @@ export async function extractAuth(req: Request): Promise<AuthContext> {
       if (user) {
         ctx.user = user
         ctx.tokenPermissions = token.permissions
-        return ctx
-      }
-    }
-  }
-
-  const cookie = req.headers.get('Cookie')
-  if (cookie) {
-    const match = cookie.match(/session=([^;]+)/)
-    if (match?.[1]) {
-      const session = await verifySession(match[1])
-      if (session) {
-        const user = getUser(session.sub)
-        if (user) {
-          ctx.user = user
-          ctx.tokenPermissions = 'admin'
-          return ctx
-        }
       }
     }
   }
@@ -103,17 +90,6 @@ export function jsonResponse(
   })
 }
 
-type RouteHandler = (req: Request) => Response | Promise<Response>
-
-type MethodHandler = {
-  method: string
-  handler: RouteHandler
-}
-
-export function method(m: string, handler: RouteHandler): MethodHandler {
-  return { method: m.toUpperCase(), handler }
-}
-
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`
 const green = (s: string) => `\x1b[32m${s}\x1b[0m`
 const yellow = (s: string) => `\x1b[33m${s}\x1b[0m`
@@ -126,38 +102,39 @@ function colorStatus(status: number): string {
   return red(String(status))
 }
 
+type RouteHandler = (req: Request) => Response | Promise<Response>
+
+type MethodHandler = {
+  method: string
+  handler: RouteHandler
+}
+
+export function method(m: string, handler: RouteHandler): MethodHandler {
+  return { method: m.toUpperCase(), handler }
+}
+
 export function withMiddleware(...handlers: MethodHandler[]): RouteHandler {
   return async (req) => {
     const start = Date.now()
     const url = new URL(req.url)
+    let res: Response
 
     if (req.method === 'OPTIONS') {
-      const res = new Response(null, { status: 204, headers: corsHeaders() })
-      console.log(
-        `${dim(req.method)} ${url.pathname} ${colorStatus(res.status)} ${dim(`${Date.now() - start}ms`)}`,
-      )
-      return res
+      res = new Response(null, { status: 204, headers: corsHeaders() })
+    } else {
+      const rateLimitKey = getRateLimitKey(req)
+      if (!checkRateLimit(rateLimitKey)) {
+        res = jsonResponse({ error: 'Too many requests' }, 429, { 'Retry-After': '60' })
+      } else {
+        const handler = handlers.find((h) => h.method === req.method)
+        if (!handler) {
+          res = jsonResponse({ error: 'Method not allowed' }, 405)
+        } else {
+          res = await handler.handler(req)
+        }
+      }
     }
 
-    const rateLimitKey = getRateLimitKey(req)
-    if (!checkRateLimit(rateLimitKey)) {
-      const res = jsonResponse({ error: 'Too many requests' }, 429, { 'Retry-After': '60' })
-      console.log(
-        `${dim(req.method)} ${url.pathname} ${colorStatus(res.status)} ${dim(`${Date.now() - start}ms`)}`,
-      )
-      return res
-    }
-
-    const handler = handlers.find((h) => h.method === req.method)
-    if (!handler) {
-      const res = jsonResponse({ error: 'Method not allowed' }, 405)
-      console.log(
-        `${dim(req.method)} ${url.pathname} ${colorStatus(res.status)} ${dim(`${Date.now() - start}ms`)}`,
-      )
-      return res
-    }
-
-    const res = await handler.handler(req)
     console.log(
       `${dim(req.method)} ${url.pathname} ${colorStatus(res.status)} ${dim(`${Date.now() - start}ms`)}`,
     )

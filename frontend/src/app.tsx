@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'preact/hooks'
 import { Login } from './components/Login'
 import { Dashboard } from './components/Dashboard'
+import { api } from './api'
 
 type User = {
   id: number
@@ -13,14 +14,19 @@ export function App() {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetch('/api/me', { credentials: 'include' })
+  const checkAuth = () => {
+    setLoading(true)
+    api('/api/me')
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         setUser(data)
         setLoading(false)
       })
       .catch(() => setLoading(false))
+  }
+
+  useEffect(() => {
+    checkAuth()
   }, [])
 
   if (loading) {

@@ -6,7 +6,7 @@ const SESSION_SECRET = new TextEncoder().encode(
 )
 const GITHUB_CLIENT_ID = process.env.GITHUB_CLIENT_ID || ''
 const GITHUB_CLIENT_SECRET = process.env.GITHUB_CLIENT_SECRET || ''
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173'
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000'
 
 export async function createSession(user: User): Promise<string> {
   return new SignJWT({ sub: String(user.id), github_id: user.github_id })
