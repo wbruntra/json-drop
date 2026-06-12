@@ -7,6 +7,7 @@
     "dev": "NODE_ENV=development bun --hot index.ts",
     "start": "bun index.ts",
     "migrate": "bun migrate.ts",
+    "codegen": "bun run codegen.ts",
     "build:frontend": "bun build frontend/index.html --outdir frontend/dist --minify && cp -r frontend/public/* frontend/dist/",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -19,6 +20,7 @@
   "devDependencies": {
     "@types/bun": "latest",
     "husky": "^9.1.7",
+    "kysely-codegen": "^0.20.0",
     "lint-staged": "^17.0.7",
     "prettier": "^3.8.4"
   },

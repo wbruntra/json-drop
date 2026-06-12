@@ -13,7 +13,8 @@
 
 ## Patterns That Work
 
-- DB lifecycle: `initDatabase(path)` in database.ts (explicit init + migrations), `createServer()` in server.ts; index.ts is a thin entry. Tests call `initDatabase(':memory:', { silent: true })` in beforeEach against the real server — no duplicated route tables in tests.
+- `kysely-db.ts` is the Kysely-based database connector (next-gen replacement for `database.ts`). Currently has Kysely document CRUD (async); user/token ops still use raw `bun:sqlite`. `kysely-types.ts` is auto-generated via `bun run codegen` (`codegen.ts` introspects the SQLite schema with pragmas including FK info for correct nullability).
+- Run `bun run codegen` after schema changes to regenerate `kysely-types.ts`.
 
 ## Patterns That Don't Work
 
