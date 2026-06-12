@@ -26,9 +26,8 @@ export type ApiToken = {
 }
 
 export type Document = {
-  id: string
+  path: string
   user_id: number
-  name: string
   content: string
   access_mode: string
   access_secret: string | null
@@ -90,50 +89,44 @@ export function revokeApiToken(id: number, userId: number): boolean {
   return result.changes > 0
 }
 
-export function createDocument(
-  id: string,
+export function upsertDocument(
+  path: string,
   userId: number,
-  name: string,
   content: string,
   accessMode: string,
   accessSecret: string | null,
   sizeBytes: number,
 ): Document {
   const stmt = db.prepare(
-    `INSERT INTO documents (id, user_id, name, content, access_mode, access_secret, size_bytes)
-     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`,
-  )
-  return stmt.get(id, userId, name, content, accessMode, accessSecret, sizeBytes) as Document
-}
-
-export function getDocument(id: string): Document | null {
-  return db.prepare('SELECT * FROM documents WHERE id = ?').get(id) as Document | null
-}
-
-export function listDocuments(userId: number): Document[] {
-  return db
-    .prepare('SELECT * FROM documents WHERE user_id = ? ORDER BY created_at DESC')
-    .all(userId) as Document[]
-}
-
-export function updateDocument(
-  id: string,
-  userId: number,
-  name: string,
-  content: string,
-  accessMode: string,
-  accessSecret: string | null,
-  sizeBytes: number,
-): Document | null {
-  const result = db
-    .prepare(
-      `UPDATE documents
-     SET name = ?, content = ?, access_mode = ?, access_secret = ?, size_bytes = ?, updated_at = CURRENT_TIMESTAMP
-     WHERE id = ? AND user_id = ?
+    `INSERT INTO documents (path, user_id, content, access_mode, access_secret, size_bytes)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, path) DO UPDATE SET
+       content = excluded.content,
+       access_mode = excluded.access_mode,
+       access_secret = excluded.access_secret,
+       size_bytes = excluded.size_bytes,
+       updated_at = CURRENT_TIMESTAMP
      RETURNING *`,
-    )
-    .get(name, content, accessMode, accessSecret, sizeBytes, id, userId) as Document | null
-  return result
+  )
+  return stmt.get(path, userId, content, accessMode, accessSecret, sizeBytes) as Document
+}
+
+export function getDocument(path: string, userId: number): Document | null {
+  return db
+    .prepare('SELECT * FROM documents WHERE path = ? AND user_id = ?')
+    .get(path, userId) as Document | null
+}
+
+export function listDocuments(userId: number, prefix?: string): Document[] {
+  if (prefix) {
+    const prefixPattern = prefix.endsWith('/') ? `${prefix}%` : `${prefix}/%`
+    return db
+      .prepare('SELECT * FROM documents WHERE user_id = ? AND path LIKE ? ORDER BY path ASC')
+      .all(userId, prefixPattern) as Document[]
+  }
+  return db
+    .prepare('SELECT * FROM documents WHERE user_id = ? ORDER BY path ASC')
+    .all(userId) as Document[]
 }
 
 export function getUserTotalSize(userId: number): number {
@@ -143,8 +136,10 @@ export function getUserTotalSize(userId: number): number {
   return result.total
 }
 
-export function deleteDocument(id: string, userId: number): boolean {
-  const result = db.prepare('DELETE FROM documents WHERE id = ? AND user_id = ?').run(id, userId)
+export function deleteDocument(path: string, userId: number): boolean {
+  const result = db
+    .prepare('DELETE FROM documents WHERE path = ? AND user_id = ?')
+    .run(path, userId)
   return result.changes > 0
 }
 

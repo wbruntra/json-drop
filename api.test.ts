@@ -11,7 +11,7 @@ process.env.GITHUB_CLIENT_SECRET = 'test-client-secret'
 process.env.FRONTEND_URL = 'http://localhost:5173'
 
 import { hashToken, generateToken } from './middleware'
-import { createUser, createApiToken, createDocument, getDb } from './database'
+import { createUser, createApiToken, upsertDocument, getDb } from './database'
 import { LIMITS } from './limits'
 
 let server: ReturnType<typeof Bun.serve>
@@ -70,19 +70,19 @@ beforeAll(async () => {
       },
       '/api/docs': async (req) => {
         const { extractAuth } = require('./middleware')
-        const { handleCreateDoc, handleListDocs } = require('./routes/docs')
+        const { handleListDocs } = require('./routes/docs')
         const auth = extractAuth(req)
-        if (req.method === 'POST') return handleCreateDoc(req, auth)
-        if (req.method === 'GET') return handleListDocs(auth)
+        if (req.method === 'GET') return handleListDocs(req, auth)
         return new Response('Method not allowed', { status: 405 })
       },
-      '/api/docs/:id': async (req) => {
+      '/api/docs/*': async (req) => {
         const { extractAuth } = require('./middleware')
-        const { handleGetDoc, handleUpdateDoc, handleDeleteDoc } = require('./routes/docs')
+        const { handleUpsertDoc, handleGetDoc, handleDeleteDoc } = require('./routes/docs')
         const auth = extractAuth(req)
-        if (req.method === 'GET') return handleGetDoc(req, auth, req.params.id)
-        if (req.method === 'PUT') return handleUpdateDoc(req, auth, req.params.id)
-        if (req.method === 'DELETE') return handleDeleteDoc(req, auth, req.params.id)
+        const path = req.params['*'] || ''
+        if (req.method === 'GET') return handleGetDoc(req, auth, path)
+        if (req.method === 'PUT') return handleUpsertDoc(req, auth, path)
+        if (req.method === 'DELETE') return handleDeleteDoc(req, auth, path)
         return new Response('Method not allowed', { status: 405 })
       },
     },
@@ -112,12 +112,6 @@ beforeEach(() => {
 
 function authHeader(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` }
-}
-
-function makeDoc(name: string, content: unknown, mode = 'public', secret: string | null = null) {
-  const json = JSON.stringify(content)
-  const size = new TextEncoder().encode(json).byteLength
-  return { name, content: json, access_mode: mode, size_bytes: size }
 }
 
 describe('Authentication', () => {
@@ -186,26 +180,25 @@ describe('API Tokens', () => {
 })
 
 describe('Documents', () => {
-  test('POST /api/docs creates a public document', async () => {
-    const res = await fetch(`${baseUrl}/api/docs`, {
-      method: 'POST',
+  test('PUT /api/docs/{path} creates a public document', async () => {
+    const res = await fetch(`${baseUrl}/api/docs/test-doc`, {
+      method: 'PUT',
       headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Test Doc', content: { foo: 'bar' } }),
+      body: JSON.stringify({ content: { foo: 'bar' } }),
     })
 
     expect(res.status).toBe(201)
     const data = await res.json()
-    expect(data.id).toBeDefined()
+    expect(data.path).toBe('test-doc')
     expect(data.access_mode).toBe('public')
     expect(data.size_bytes).toBeGreaterThan(0)
   })
 
-  test('POST /api/docs creates a private document with secret', async () => {
-    const res = await fetch(`${baseUrl}/api/docs`, {
-      method: 'POST',
+  test('PUT /api/docs/{path} creates a private document with secret', async () => {
+    const res = await fetch(`${baseUrl}/api/docs/private-doc`, {
+      method: 'PUT',
       headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: 'Private Doc',
         content: { secret: 'data' },
         access_mode: 'private',
       }),
@@ -213,6 +206,7 @@ describe('Documents', () => {
 
     expect(res.status).toBe(201)
     const data = await res.json()
+    expect(data.path).toBe('private-doc')
     expect(data.access_mode).toBe('private')
     expect(data.access_secret).toBeDefined()
   })
@@ -228,65 +222,100 @@ describe('Documents', () => {
     expect(data.storage.limit).toBeDefined()
   })
 
-  test('GET /api/docs/:id returns public document without auth', async () => {
-    createDocument('pub-a', userRecord.id, 'Public', '{"x":1}', 'public', null, 9)
+  test('GET /api/docs?prefix=notes lists documents under collection', async () => {
+    upsertDocument('notes/todo', userRecord.id, '{"task":"buy milk"}', 'public', null, 20)
+    upsertDocument('notes/shopping', userRecord.id, '{"items":["bread"]}', 'public', null, 22)
+    upsertDocument('projects/alpha', userRecord.id, '{"name":"alpha"}', 'public', null, 17)
 
-    const res = await fetch(`${baseUrl}/api/docs/pub-a`)
+    const res = await fetch(`${baseUrl}/api/docs?prefix=notes`, {
+      headers: authHeader(adminToken),
+    })
     expect(res.status).toBe(200)
     const data = await res.json()
-    expect(data.id).toBe('pub-a')
+    expect(data.docs.length).toBe(2)
+    expect(data.docs[0].path).toBe('notes/shopping')
+    expect(data.docs[1].path).toBe('notes/todo')
+  })
+
+  test('GET /api/docs/{path} returns public document without auth', async () => {
+    upsertDocument('public-doc', userRecord.id, '{"x":1}', 'public', null, 6)
+
+    const res = await fetch(`${baseUrl}/api/docs/public-doc`)
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.path).toBe('public-doc')
     expect(data.content.x).toBe(1)
   })
 
-  test('GET /api/docs/:id returns 403 for private doc without secret', async () => {
-    createDocument('priv-a', userRecord.id, 'Private', '{"y":1}', 'private', 'sec123', 9)
+  test('GET /api/docs/{path} returns 403 for private doc without secret', async () => {
+    upsertDocument('private-doc', userRecord.id, '{"y":1}', 'private', 'sec123', 6)
 
-    const res = await fetch(`${baseUrl}/api/docs/priv-a`)
+    const res = await fetch(`${baseUrl}/api/docs/private-doc`)
     expect(res.status).toBe(403)
   })
 
-  test('GET /api/docs/:id returns private doc with correct secret', async () => {
-    createDocument('priv-b', userRecord.id, 'Private', '{"z":1}', 'private', 'sec456', 9)
+  test('GET /api/docs/{path} returns private doc with correct secret', async () => {
+    upsertDocument('private-doc', userRecord.id, '{"z":1}', 'private', 'sec456', 6)
 
-    const res = await fetch(`${baseUrl}/api/docs/priv-b?secret=sec456`)
+    const res = await fetch(`${baseUrl}/api/docs/private-doc?secret=sec456`)
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.content.z).toBe(1)
   })
 
-  test('PUT /api/docs/:id updates document as owner', async () => {
-    createDocument('upd-a', userRecord.id, 'Original', '{"v":1}', 'public', null, 9)
+  test('PUT /api/docs/{path} updates document as owner', async () => {
+    upsertDocument('update-doc', userRecord.id, '{"v":1}', 'public', null, 6)
 
-    const res = await fetch(`${baseUrl}/api/docs/upd-a`, {
+    const res = await fetch(`${baseUrl}/api/docs/update-doc`, {
       method: 'PUT',
       headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Updated', content: { v: 2 } }),
-    })
-
-    expect(res.status).toBe(200)
-    const data = await res.json()
-    expect(data.name).toBe('Updated')
-    expect(data.content.v).toBe(2)
-  })
-
-  test('PUT /api/docs/:id updates with secret for private doc', async () => {
-    createDocument('upd-s', userRecord.id, 'Secret', '{"v":1}', 'private', 'sec789', 9)
-
-    const res = await fetch(`${baseUrl}/api/docs/upd-s?secret=sec789`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { v: 2 } }),
     })
 
     expect(res.status).toBe(200)
     const data = await res.json()
+    expect(data.path).toBe('update-doc')
     expect(data.content.v).toBe(2)
   })
 
-  test('DELETE /api/docs/:id deletes document as owner', async () => {
-    createDocument('del-a', userRecord.id, 'Delete Me', '{}', 'public', null, 2)
+  test('PUT /api/docs/{path} supports nested paths', async () => {
+    const res = await fetch(`${baseUrl}/api/docs/notes/2024/january/todo`, {
+      method: 'PUT',
+      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { task: 'nested doc' } }),
+    })
 
-    const res = await fetch(`${baseUrl}/api/docs/del-a`, {
+    expect(res.status).toBe(201)
+    const data = await res.json()
+    expect(data.path).toBe('notes/2024/january/todo')
+  })
+
+  test('PUT /api/docs/{path} rejects invalid path characters', async () => {
+    const res = await fetch(`${baseUrl}/api/docs/invalid path!`, {
+      method: 'PUT',
+      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: {} }),
+    })
+
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.error).toContain('Invalid path segment')
+  })
+
+  test('PUT /api/docs/{path} rejects leading/trailing slashes', async () => {
+    const res = await fetch(`${baseUrl}/api/docs/leading-slash`, {
+      method: 'PUT',
+      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: {} }),
+    })
+
+    expect(res.status).toBe(400)
+  })
+
+  test('DELETE /api/docs/{path} deletes document as owner', async () => {
+    upsertDocument('delete-me', userRecord.id, '{}', 'public', null, 2)
+
+    const res = await fetch(`${baseUrl}/api/docs/delete-me`, {
       method: 'DELETE',
       headers: authHeader(adminToken),
     })
@@ -295,30 +324,21 @@ describe('Documents', () => {
     const data = await res.json()
     expect(data.deleted).toBe(true)
 
-    const getRes = await fetch(`${baseUrl}/api/docs/del-a`)
+    const getRes = await fetch(`${baseUrl}/api/docs/delete-me`)
     expect(getRes.status).toBe(404)
   })
 
   test('Document access modes work correctly', async () => {
-    createDocument('am-public', userRecord.id, 'Pub', '{"mode":"pub"}', 'public', null, 17)
-    createDocument(
+    upsertDocument('am-public', userRecord.id, '{"mode":"pub"}', 'public', null, 12)
+    upsertDocument(
       'am-prs',
       userRecord.id,
-      'PRS',
       '{"mode":"prs"}',
       'public_read_secret_write',
       'prs-sec',
-      16,
+      12,
     )
-    createDocument(
-      'am-private',
-      userRecord.id,
-      'Priv',
-      '{"mode":"priv"}',
-      'private',
-      'priv-sec',
-      17,
-    )
+    upsertDocument('am-private', userRecord.id, '{"mode":"priv"}', 'private', 'priv-sec', 13)
 
     const pubRes = await fetch(`${baseUrl}/api/docs/am-public`)
     expect(pubRes.status).toBe(200)
@@ -344,10 +364,10 @@ describe('Documents', () => {
     const big = 'x'.repeat(LIMITS.maxDocSize)
     const content = JSON.stringify({ data: big })
 
-    const res = await fetch(`${baseUrl}/api/docs`, {
-      method: 'POST',
+    const res = await fetch(`${baseUrl}/api/docs/too-big`, {
+      method: 'PUT',
       headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Too Big', content: { data: big } }),
+      body: JSON.stringify({ content: { data: big } }),
     })
 
     expect(res.status).toBe(413)
@@ -356,29 +376,18 @@ describe('Documents', () => {
   })
 
   test('Rejects when total storage would exceed 10MB', async () => {
-    // Fill up with 1MB docs until next one would overflow
     const docBody = { data: 'x'.repeat(LIMITS.maxDocSize - 30) }
     const docSize = new TextEncoder().encode(JSON.stringify(docBody)).byteLength
 
-    // Create enough so that one more would exceed total
     const docsNeeded = Math.ceil(LIMITS.maxTotalSize / docSize) + 1
     for (let i = 0; i < docsNeeded; i++) {
-      createDocument(
-        `fill-${i}`,
-        userRecord.id,
-        `Fill ${i}`,
-        JSON.stringify(docBody),
-        'public',
-        null,
-        docSize,
-      )
+      upsertDocument(`fill-${i}`, userRecord.id, JSON.stringify(docBody), 'public', null, docSize)
     }
 
-    // Next document should be rejected
-    const res = await fetch(`${baseUrl}/api/docs`, {
-      method: 'POST',
+    const res = await fetch(`${baseUrl}/api/docs/overflow`, {
+      method: 'PUT',
       headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Overflow', content: { x: 'y' } }),
+      body: JSON.stringify({ content: { x: 'y' } }),
     })
 
     expect(res.status).toBe(413)

@@ -11,13 +11,7 @@ import {
 import { handleGitHubAuth, handleGitHubCallback, handleLogout } from './routes/auth'
 import { handleMe } from './routes/me'
 import { handleCreateToken, handleListTokens, handleDeleteToken } from './routes/tokens'
-import {
-  handleCreateDoc,
-  handleListDocs,
-  handleGetDoc,
-  handleUpdateDoc,
-  handleDeleteDoc,
-} from './routes/docs'
+import { handleUpsertDoc, handleListDocs, handleGetDoc, handleDeleteDoc } from './routes/docs'
 import { handleDevLogin, handleDevCreateToken } from './routes/dev'
 import homepage from './frontend/index.html'
 
@@ -63,36 +57,35 @@ const server = Bun.serve({
     ),
 
     '/api/docs': withMiddleware(
-      method('POST', async (req) => {
+      method('PUT', async (req) => {
         const auth = extractAuth(req)
-        return handleCreateDoc(req, auth)
+        const url = new URL(req.url)
+        const path = url.searchParams.get('path') || ''
+        return handleUpsertDoc(req, auth, path)
       }),
       method('GET', (req) => {
         const auth = extractAuth(req)
-        return handleListDocs(auth)
+        return handleListDocs(req, auth)
       }),
     ),
-    '/api/docs/:id': withMiddleware(
+    '/api/docs/*': withMiddleware(
       method('GET', (req) => {
         const auth = extractAuth(req)
         const bunReq = req as BunRequest
-        const id = bunReq.params.id
-        if (!id) return jsonResponse({ error: 'Invalid document ID' }, 400)
-        return handleGetDoc(req, auth, id)
+        const path = bunReq.params['*'] || ''
+        return handleGetDoc(req, auth, path)
       }),
       method('PUT', async (req) => {
         const auth = extractAuth(req)
         const bunReq = req as BunRequest
-        const id = bunReq.params.id
-        if (!id) return jsonResponse({ error: 'Invalid document ID' }, 400)
-        return handleUpdateDoc(req, auth, id)
+        const path = bunReq.params['*'] || ''
+        return handleUpsertDoc(req, auth, path)
       }),
       method('DELETE', (req) => {
         const auth = extractAuth(req)
         const bunReq = req as BunRequest
-        const id = bunReq.params.id
-        if (!id) return jsonResponse({ error: 'Invalid document ID' }, 400)
-        return handleDeleteDoc(req, auth, id)
+        const path = bunReq.params['*'] || ''
+        return handleDeleteDoc(req, auth, path)
       }),
     ),
 

@@ -1,17 +1,37 @@
-import short from 'short-uuid'
 import { jsonResponse } from '../middleware'
 import {
-  createDocument,
+  upsertDocument,
   getDocument,
   listDocuments,
-  updateDocument,
   deleteDocument,
   getUserTotalSize,
 } from '../database'
 import type { AuthContext } from '../middleware'
 import { LIMITS } from '../limits'
 
-const translator = short.createTranslator()
+const PATH_SEGMENT_REGEX = /^[a-zA-Z0-9_-]+$/
+
+function validatePath(path: string): { valid: boolean; error?: string } {
+  if (!path) {
+    return { valid: false, error: 'Path is required' }
+  }
+  if (path.startsWith('/') || path.endsWith('/')) {
+    return { valid: false, error: 'Path must not start or end with /' }
+  }
+  if (path.includes('//')) {
+    return { valid: false, error: 'Path must not contain empty segments' }
+  }
+  const segments = path.split('/')
+  for (const segment of segments) {
+    if (!PATH_SEGMENT_REGEX.test(segment)) {
+      return {
+        valid: false,
+        error: `Invalid path segment "${segment}". Only alphanumeric, hyphens, and underscores allowed.`,
+      }
+    }
+  }
+  return { valid: true }
+}
 
 function contentSize(content: string): number {
   return new TextEncoder().encode(content).byteLength
@@ -51,13 +71,21 @@ function formatMb(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-export async function handleCreateDoc(req: Request, auth: AuthContext): Promise<Response> {
+export async function handleUpsertDoc(
+  req: Request,
+  auth: AuthContext,
+  path: string,
+): Promise<Response> {
   if (!auth.user) {
     return jsonResponse({ error: 'Not authenticated' }, 401)
   }
 
-  const body = (await req.json()) as { name?: string; content?: unknown; access_mode?: string }
-  const name = body.name || 'Untitled'
+  const pathCheck = validatePath(path)
+  if (!pathCheck.valid) {
+    return jsonResponse({ error: pathCheck.error }, 400)
+  }
+
+  const body = (await req.json()) as { content?: unknown; access_mode?: string }
   const content = body.content !== undefined ? JSON.stringify(body.content) : '{}'
   const accessMode = body.access_mode || 'public'
 
@@ -75,8 +103,10 @@ export async function handleCreateDoc(req: Request, auth: AuthContext): Promise<
     )
   }
 
+  const existingDoc = getDocument(path, auth.user.id)
   const currentTotal = getUserTotalSize(auth.user.id)
-  if (currentTotal + size > LIMITS.maxTotalSize) {
+  const sizeDiff = existingDoc ? size - existingDoc.size_bytes : size
+  if (currentTotal + sizeDiff > LIMITS.maxTotalSize) {
     return jsonResponse(
       {
         error: `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
@@ -85,39 +115,52 @@ export async function handleCreateDoc(req: Request, auth: AuthContext): Promise<
     )
   }
 
-  const accessSecret = accessMode !== 'public' ? crypto.randomUUID() : null
-  const id = translator.generate()
+  let accessSecret: string | null
+  if (existingDoc) {
+    if (accessMode !== existingDoc.access_mode) {
+      accessSecret =
+        accessMode !== 'public' ? existingDoc.access_secret || crypto.randomUUID() : null
+    } else {
+      accessSecret = existingDoc.access_secret
+    }
+  } else {
+    accessSecret = accessMode !== 'public' ? crypto.randomUUID() : null
+  }
 
-  const doc = createDocument(id, auth.user.id, name, content, accessMode, accessSecret, size)
+  const doc = upsertDocument(path, auth.user.id, content, accessMode, accessSecret, size)
 
   return jsonResponse(
     {
-      id: doc.id,
-      name: doc.name,
+      path: doc.path,
       access_mode: doc.access_mode,
       access_secret: doc.access_secret,
       size_bytes: doc.size_bytes,
       created_at: doc.created_at,
-      message: accessSecret
-        ? 'Store the access_secret now. It will not be shown again.'
-        : undefined,
+      updated_at: doc.updated_at,
+      message:
+        accessSecret && !existingDoc
+          ? 'Store the access_secret now. It will not be shown again.'
+          : undefined,
     },
-    201,
+    existingDoc ? 200 : 201,
   )
 }
 
-export function handleListDocs(auth: AuthContext): Response {
+export function handleListDocs(req: Request, auth: AuthContext): Response {
   if (!auth.user) {
     return jsonResponse({ error: 'Not authenticated' }, 401)
   }
 
-  const docs = listDocuments(auth.user.id)
+  const url = new URL(req.url)
+  const prefix = url.searchParams.get('prefix') || undefined
+
+  const docs = listDocuments(auth.user.id, prefix)
   const total = getUserTotalSize(auth.user.id)
 
   return jsonResponse({
+    prefix: prefix || null,
     docs: docs.map((d) => ({
-      id: d.id,
-      name: d.name,
+      path: d.path,
       access_mode: d.access_mode,
       content: JSON.parse(d.content),
       size_bytes: d.size_bytes,
@@ -135,9 +178,18 @@ export function handleListDocs(auth: AuthContext): Response {
 export async function handleGetDoc(
   req: Request,
   auth: AuthContext,
-  docId: string,
+  path: string,
 ): Promise<Response> {
-  const doc = getDocument(docId)
+  if (!auth.user) {
+    return jsonResponse({ error: 'Not authenticated' }, 401)
+  }
+
+  const pathCheck = validatePath(path)
+  if (!pathCheck.valid) {
+    return jsonResponse({ error: pathCheck.error }, 400)
+  }
+
+  const doc = getDocument(path, auth.user.id)
   if (!doc) {
     return jsonResponse({ error: 'Document not found' }, 404)
   }
@@ -150,8 +202,7 @@ export async function handleGetDoc(
   }
 
   return jsonResponse({
-    id: doc.id,
-    name: doc.name,
+    path: doc.path,
     access_mode: doc.access_mode,
     content: JSON.parse(doc.content),
     size_bytes: doc.size_bytes,
@@ -160,84 +211,21 @@ export async function handleGetDoc(
   })
 }
 
-export async function handleUpdateDoc(
-  req: Request,
-  auth: AuthContext,
-  docId: string,
-): Promise<Response> {
-  const doc = getDocument(docId)
-  if (!doc) {
-    return jsonResponse({ error: 'Document not found' }, 404)
-  }
-
-  const url = new URL(req.url)
-  const secret = url.searchParams.get('secret')
-
-  if (!canWrite(auth, doc, secret)) {
-    return jsonResponse({ error: 'Forbidden' }, 403)
-  }
-
-  const body = (await req.json()) as { name?: string; content?: unknown; access_mode?: string }
-  const name = body.name ?? doc.name
-  const content = body.content !== undefined ? JSON.stringify(body.content) : doc.content
-  const accessMode = body.access_mode ?? doc.access_mode
-
-  if (!['public', 'public_read_secret_write', 'private'].includes(accessMode)) {
-    return jsonResponse({ error: 'Invalid access_mode' }, 400)
-  }
-
-  const size = contentSize(content)
-  if (size > LIMITS.maxDocSize) {
-    return jsonResponse(
-      {
-        error: `Document exceeds max size of ${formatMb(LIMITS.maxDocSize)}`,
-      },
-      413,
-    )
-  }
-
-  const currentTotal = getUserTotalSize(doc.user_id)
-  const sizeDiff = size - doc.size_bytes
-  if (currentTotal + sizeDiff > LIMITS.maxTotalSize) {
-    return jsonResponse(
-      {
-        error: `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
-      },
-      413,
-    )
-  }
-
-  let accessSecret = doc.access_secret
-  if (accessMode !== doc.access_mode) {
-    accessSecret = accessMode !== 'public' ? doc.access_secret || crypto.randomUUID() : null
-  }
-
-  const updated = updateDocument(docId, doc.user_id, name, content, accessMode, accessSecret, size)
-  if (!updated) {
-    return jsonResponse({ error: 'Update failed' }, 500)
-  }
-
-  return jsonResponse({
-    id: updated.id,
-    name: updated.name,
-    access_mode: updated.access_mode,
-    access_secret: updated.access_secret,
-    content: JSON.parse(updated.content),
-    size_bytes: updated.size_bytes,
-    updated_at: updated.updated_at,
-  })
-}
-
 export async function handleDeleteDoc(
   req: Request,
   auth: AuthContext,
-  docId: string,
+  path: string,
 ): Promise<Response> {
   if (!auth.user) {
     return jsonResponse({ error: 'Not authenticated' }, 401)
   }
 
-  const doc = getDocument(docId)
+  const pathCheck = validatePath(path)
+  if (!pathCheck.valid) {
+    return jsonResponse({ error: pathCheck.error }, 400)
+  }
+
+  const doc = getDocument(path, auth.user.id)
   if (!doc) {
     return jsonResponse({ error: 'Document not found' }, 404)
   }
@@ -246,7 +234,7 @@ export async function handleDeleteDoc(
     return jsonResponse({ error: 'Forbidden' }, 403)
   }
 
-  const deleted = deleteDocument(docId, auth.user.id)
+  const deleted = deleteDocument(path, auth.user.id)
   if (!deleted) {
     return jsonResponse({ error: 'Delete failed' }, 500)
   }
