@@ -1,12 +1,12 @@
-import { jsonResponse } from '../middleware'
-import type { AuthContext } from '../services/auth'
+import type { Context } from 'hono'
 
-export function handleMe(auth: AuthContext): Response {
+export function handleMe(c: Context): Response {
+  const auth = c.get('auth')
   if (!auth.user) {
-    return jsonResponse({ error: 'Not authenticated' }, 401)
+    return c.json({ error: 'Not authenticated' }, 401)
   }
 
-  return jsonResponse({
+  return c.json({
     id: auth.user.id,
     github_id: auth.user.github_id,
     email: auth.user.email,

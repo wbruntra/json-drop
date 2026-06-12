@@ -221,7 +221,7 @@ describe('Documents', () => {
 
     expect(res.status).toBe(400)
     const data = await res.json()
-    expect(data.error).toContain('Invalid path segment')
+    expect(data.error).toContain('Path segments contain invalid')
   })
 
   test('DELETE /api/docs/{id} deletes document as owner', async () => {

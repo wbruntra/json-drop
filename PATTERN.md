@@ -1,26 +1,31 @@
 # Backend Pattern
 
-A Bun + Hono + Kysely + SQLite backend pattern for API servers. Built for `json-drop` and designed to be reused.
+A Bun + Hono + Kysely + SQLite backend pattern for API servers.
 
 ## Stack
 
-| Layer          | Choice                                |
-| -------------- | ------------------------------------- |
-| Runtime        | Bun                                   |
-| HTTP framework | Hono                                  |
-| Database       | SQLite via `bun:sqlite`               |
-| Query builder  | Kysely + `kysely-bun-dialects`        |
-| Auth           | Bearer token (SHA-256 hashed)         |
-| Migrations     | Raw SQL files, run at startup         |
-| Type gen       | Custom `codegen.ts` from pragmas      |
-| Testing        | `bun test`, real server, in-memory DB |
+| Layer          | Choice                                        |
+| -------------- | --------------------------------------------- |
+| Runtime        | Bun                                           |
+| HTTP framework | Hono                                          |
+| Database       | SQLite via `bun:sqlite`                       |
+| Query builder  | Kysely + `kysely-bun-dialects`                |
+| Validation     | Zod                                           |
+| Rate limiting  | `hono-rate-limiter` (MemoryStore)             |
+| Auth           | Bearer token (stored raw, looked up directly) |
+| Migrations     | Raw SQL files, run at startup                 |
+| Type gen       | Custom `codegen.ts` from pragmas              |
+| Testing        | `bun test`, real server, in-memory DB         |
 
 ## Project Structure
 
 ```
 ├── index.ts              # Entry point: init DB, start server
 ├── server.ts             # Hono app + Bun.serve wrapper
-├── middleware.ts          # Utility functions (hash, rate-limit, jsonResponse)
+├── schemas.ts            # Zod validation schemas
+├── middleware.ts          # generateToken() utility only
+├── middleware/
+│   └── customLogger.ts   # Hono middleware: colored request logging
 ├── kysely-db.ts           # DB lifecycle: init, getDb(), getRawDb(), types
 ├── kysely-types.ts        # Auto-generated table types (don't edit)
 ├── codegen.ts             # Generates kysely-types.ts from SQLite schema
@@ -31,7 +36,7 @@ A Bun + Hono + Kysely + SQLite backend pattern for API servers. Built for `json-
 ├── services/              # Data access layer — Kysely queries only
 │   ├── index.ts           # Barrel export
 │   ├── users.ts           # createUser, getUser, getUserByGithubId
-│   ├── tokens.ts          # createApiToken, listApiTokens, revokeApiToken, etc.
+│   ├── tokens.ts          # createApiToken, listApiTokens, getApiToken, revokeApiToken
 │   ├── documents.ts       # upsertDocument, listDocuments, deleteDocument, etc.
 │   └── auth.ts            # extractAuth (bearer token → user + permissions)
 ├── routes/                # HTTP handlers — call services, never DB directly
@@ -41,7 +46,7 @@ A Bun + Hono + Kysely + SQLite backend pattern for API servers. Built for `json-
 │   ├── docs.ts            # CRUD /api/docs
 │   └── dev.ts             # Dev-only login shortcuts
 ├── auth.ts                # JWT session + GitHub OAuth helpers
-├── limits.ts              # Rate/storage limit constants
+├── limits.ts              # Storage limit constants
 └── api.test.ts            # Integration tests (real server, in-memory DB)
 ```
 
@@ -49,7 +54,7 @@ A Bun + Hono + Kysely + SQLite backend pattern for API servers. Built for `json-
 
 ### Migrations (`migrate.ts`)
 
-Plain SQL files in `migrations/`, sorted alphabetically. Each file is run inside a transaction and recorded in `_migrations`.
+Plain SQL files in `migrations/`, sorted alphabetically. Each file runs inside a transaction and is recorded in `_migrations`.
 
 ```sql
 -- migrations/001_initial.sql
@@ -60,9 +65,7 @@ CREATE TABLE IF NOT EXISTS users (
 );
 ```
 
-Run manually or at startup:
-
-```
+```bash
 bun migrate                    # standalone
 await runMigrations(db)        # called by initDatabase()
 ```
@@ -84,7 +87,7 @@ bun run codegen                # regenerate after schema changes
 
 ### Database Lifecycle (`kysely-db.ts`)
 
-Single module that owns the connection. Two exports:
+Single module that owns the connection:
 
 - `initDatabase(path)` — creates `bun:sqlite` Database, runs migrations, wraps with Kysely
 - `getDb()` — returns typed `Kysely<DatabaseSchema>` for service layer
@@ -97,7 +100,7 @@ await initDatabase(process.env.DATABASE_URL || 'db.sqlite')
 
 ### Kysely Query Pattern
 
-All service functions are Kysely-based and async. The generated types provide full type safety:
+All service functions are Kysely-based and async with full type safety:
 
 ```ts
 // services/users.ts
@@ -129,22 +132,56 @@ Rules:
 - Every function is `async` and uses Kysely
 - Accepts plain values, returns typed records
 - No HTTP concerns (no Request, no Response, no status codes)
-- Can call other services (e.g. `services/auth.ts` calls `tokens.getApiTokenByHash` and `users.getUser`)
+- Can call other services (e.g. `services/auth.ts` calls `tokens.getApiToken` and `users.getUser`)
 
 ### Auth Service (`services/auth.ts`)
 
-Extracts user identity from `Authorization: Bearer <token>` header:
+Extracts user identity from `Authorization: Bearer <token>` header by looking up the raw token directly in the database:
 
 ```ts
 export type AuthContext = {
-  user: User | null // null = unauthenticated
+  user: User | null
   tokenPermissions: string | null // 'read' | 'write' | 'read_write' | 'admin'
 }
 
 export async function extractAuth(req: Request): Promise<AuthContext>
 ```
 
-This is called by Hono middleware (not by individual routes). Routes receive auth via `c.get('auth')`.
+This is called by Hono middleware, not by individual routes. Routes access auth via `c.get('auth')`.
+
+### Token Handling
+
+Tokens are stored as plain text in the `api_tokens.token_hash` column (the column name is a legacy artifact — it stores raw tokens, not hashes). Users can view their tokens at any time via `GET /api/tokens`.
+
+```ts
+// Creating a token
+const rawToken = generateToken() // "jd_a1b2c3..."
+await createApiToken(userId, name, rawToken, 'admin')
+
+// Authenticating a request
+const token = req.headers.get('Authorization')?.slice(7)
+const apiToken = await getApiToken(token) // direct lookup, no hashing
+```
+
+## Validation Layer (`schemas.ts`)
+
+Zod schemas for all request inputs. Route handlers use `.safeParse()` and return 400 with the first error message on failure:
+
+```ts
+import { createTokenSchema, formatZodError } from '../schemas'
+
+const parsed = createTokenSchema.safeParse(await c.req.json())
+if (!parsed.success) {
+  return c.json({ error: formatZodError(parsed.error) }, 400)
+}
+// parsed.data.name, parsed.data.permissions — fully typed
+```
+
+Schemas define defaults so route handlers don't need fallback logic:
+
+- `createTokenSchema`: name defaults to `'Unnamed token'`, permissions to `'read_write'`
+- `upsertDocSchema`: content defaults to `{}`, access_mode to `'public'`
+- `pathSchema`: validates path segments, no leading/trailing slashes, no empty segments
 
 ## HTTP Layer
 
@@ -153,10 +190,10 @@ This is called by Hono middleware (not by individual routes). Routes receive aut
 Middleware chain, applied in order:
 
 ```
-cors('*')        →  CORS headers on all responses
-logger()         →  Colored request logging to console
-rateLimiter()    →  100 req/min per key (token or IP), on /api/*
-authMiddleware   →  Sets c.get('auth') from bearer token, on /api/*
+cors('*')           →  CORS headers on all responses (hono/cors)
+customLogger        →  Colored request logging (middleware/customLogger.ts)
+rateLimiter()       →  100 req/min sliding window per key (hono-rate-limiter)
+authMiddleware      →  Sets c.get('auth') and c.get('user_id') from bearer token
 ```
 
 Hono typed context:
@@ -165,65 +202,47 @@ Hono typed context:
 type Bindings = {
   Variables: {
     auth: AuthContext
+    user_id: number | null
   }
 }
 const app = new Hono<Bindings>()
 ```
 
-Routes use `c.get('auth')` for auth, `c.req.param()` for URL params, `c.req.raw` for the native `Request`:
+Route handlers receive `c: Context` directly — no wrapping:
 
 ```ts
-app.get('/api/me', (c) => handleMe(c.get('auth')))
-app.delete('/api/tokens/:id', (c) => {
-  const id = c.req.param('id')
-  return handleDeleteToken(c.req.raw, c.get('auth'), id)
-})
+app.get('/api/me', handleMe)
+app.post('/api/tokens', handleCreateToken)
+app.delete('/api/tokens/:id', handleDeleteToken)
+app.get('/api/docs', handleListDocs)
+app.get('/api/docs/:path{.+}', handleGetDoc)
 ```
 
-Multi-segment wildcard (Hono `*` does NOT populate params — use regex):
+Handlers use `c.json()` for JSON responses, `c.req.json()` for body parsing, `c.req.query()` for query strings, `c.req.param()` for URL params:
 
 ```ts
-app.get('/api/docs/:path{.+}', (c) => {
-  const path = c.req.param('path') // 'notes/2024/january/todo'
-  return handleGetDoc(c.req.raw, c.get('auth'), path)
-})
-```
-
-### Route Handlers (`routes/`)
-
-Routes are pure functions: take `Request` + params, return `Response`. They call services for data, never the database directly:
-
-```ts
-// routes/me.ts
-export function handleMe(auth: AuthContext): Response {
-  if (!auth.user) return jsonResponse({ error: 'Not authenticated' }, 401)
-  return jsonResponse({ id: auth.user.id, email: auth.user.email })
+export function handleMe(c: Context): Response {
+  const auth = c.get('auth')
+  if (!auth.user) return c.json({ error: 'Not authenticated' }, 401)
+  return c.json({ id: auth.user.id, email: auth.user.email })
 }
 ```
 
-Async handlers call `await` on services:
+### Rate Limiting
 
-```ts
-// routes/docs.ts
-export async function handleGetDoc(req, auth, id) {
-  const doc = await getDocument(id) // service call
-  if (!doc) return jsonResponse({ error: 'Not found' }, 404)
-  if (!canRead(auth, doc, secret)) return jsonResponse({ error: 'Forbidden' }, 403)
-  return jsonResponse(doc)
-}
+Uses `hono-rate-limiter` with `MemoryStore` — a true sliding window algorithm. Keys are `token:<raw token>` for authenticated requests or `ip:<address>` for anonymous ones. Config: 100 requests per 60-second window per key.
+
+### Logging (`middleware/customLogger.ts`)
+
+Colored ANSI output showing method, full URL (pathname + query string), status code, elapsed ms, and user ID when authenticated:
+
 ```
-
-### Utilities (`middleware.ts`)
-
-Framework-agnostic helpers:
-
-- `generateToken()` / `hashToken(token)` — bearer token generation and SHA-256 hashing
-- `checkRateLimit(key)` / `getRateLimitKey(req)` — in-memory sliding window rate limiter
-- `jsonResponse(data, status?, headers?)` — JSON response with CORS headers
+GET /api/me 200 3ms user=1
+PUT /api/docs/test-doc 201 4ms user=1
+GET /api/docs/public-doc 200 0ms
+```
 
 ## Entry Point (`index.ts`)
-
-Thin orchestration:
 
 ```ts
 await initDatabase(process.env.DATABASE_URL || 'db.sqlite')
@@ -243,10 +262,8 @@ Uses `bun test`. Each test gets a fresh in-memory database:
 
 ```ts
 import { createServer } from './server'
+import { generateToken } from './middleware'
 import { initDatabase, createUser, createApiToken } from './database'
-
-let server: ReturnType<typeof createServer>
-let baseUrl: string
 
 beforeAll(() => {
   server = createServer({ port: 0 }) // random port
@@ -258,15 +275,8 @@ afterAll(() => server.stop())
 beforeEach(async () => {
   await initDatabase(':memory:', { silent: true })
   const user = createUser('github-123', 'test@example.com', 'Test User')
-  const token = generateToken()
-  createApiToken(user.id, 'Admin Token', hashToken(token), 'admin')
-})
-
-test('GET /api/me returns user', async () => {
-  const res = await fetch(`${baseUrl}/api/me`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  expect(res.status).toBe(200)
+  adminToken = generateToken()
+  createApiToken(user.id, 'Admin Token', adminToken, 'admin')
 })
 ```
 
@@ -276,15 +286,17 @@ Key points:
 - `initDatabase(':memory:')` gives each test a clean DB
 - `createServer({ port: 0 })` uses a random available port
 - `{ silent: true }` suppresses migration logging in test output
+- Tokens are stored raw — pass the raw token to both `createApiToken` and the `Authorization` header
 
 ## Conventions & Gotchas
 
 - **Hono wildcard routes**: Use `:param{.+}` for multi-segment paths, not `*`. Hono's `*` wildcard does not populate `c.req.param('*')`.
-- **Bun HTMLBundle**: Bun's HTML import bundles (HMR, CSS, TSX) only work when returned directly from `Bun.serve()`'s `fetch` — Hono's `c.body()` can't handle them. Intercept the homepage route in the `Bun.serve()` wrapper instead.
-- **Module-level DB init**: Never call `new Database(...)` at module top level. Always use `initDatabase()` explicitly. Module-level init causes test-ordering hacks.
-- **Sync vs async**: `database.ts` provides sync `bun:sqlite` wrappers for transitional/test use. New code should use the async Kysely services in `services/`.
+- **Bun HTMLBundle**: Bun's HTML import bundles (HMR, CSS, TSX) only work when returned directly from `Bun.serve()`'s `fetch`. Intercept the homepage route in the `Bun.serve()` wrapper rather than Hono.
+- **Hono middlewares**: `cors()` uses `hono/cors`, not hand-rolled headers. `c.json()` replaces `new Response(JSON.stringify(...))`. Hono's `cors()` middleware adds CORS headers to every response automatically — no need for manual `corsHeaders()`.
+- **Module-level DB init**: Never call `new Database(...)` at module top level. Always use `initDatabase()` explicitly.
+- **Sync vs async**: `database.ts` provides sync `bun:sqlite` wrappers for transitional/test use. New code uses the async Kysely services in `services/`.
 - **FK nullability**: SQLite's `PRAGMA table_info.notnull` is `0` for foreign key columns even when they're effectively NOT NULL. The codegen queries `PRAGMA foreign_key_list` to correct this.
-- **ON CONFLICT RETURNING**: SQLite's `INSERT ... ON CONFLICT DO UPDATE ... RETURNING *` is supported. Kysely maps this to `.onConflict(...).doUpdateSet(...).returningAll()`.
+- **Zod v4**: Uses `err.issues` (not `err.errors`), and `.refine()` takes `{ message: '...' }` options (not a callback returning `{ message }`).
 
 ## Dependencies
 
@@ -292,8 +304,10 @@ Key points:
 {
   "dependencies": {
     "hono": "^4",
+    "hono-rate-limiter": "^0",
     "kysely": "^0.29",
-    "kysely-bun-dialects": "^1"
+    "kysely-bun-dialects": "^1",
+    "zod": "^4"
   },
   "devDependencies": {
     "@types/bun": "latest"
@@ -308,12 +322,13 @@ Key points:
 mkdir my-api && cd my-api && bun init
 
 # 2. Install deps
-bun add hono kysely kysely-bun-dialects
+bun add hono hono-rate-limiter kysely kysely-bun-dialects zod
 bun add -d @types/bun
 
 # 3. Copy these files from the template:
-#    - codegen.ts, migrate.ts
+#    - codegen.ts, migrate.ts, schemas.ts
 #    - kysely-db.ts, middleware.ts, limits.ts
+#    - middleware/customLogger.ts
 #    - migrations/ (your .sql files)
 #    - server.ts (adjust routes)
 #    - services/ (adjust for your domain)

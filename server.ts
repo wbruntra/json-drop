@@ -56,42 +56,29 @@ export function createApp(options: ServerOptions = {}) {
   app.use('/api/*', authMiddleware)
 
   // Auth
-  app.get('/api/auth/github', (c) => handleGitHubAuth(c.req.raw))
-  app.get('/gh/callback', (c) => handleGitHubCallback(c.req.raw))
-  app.post('/api/auth/logout', (c) => handleLogout())
+  app.get('/api/auth/github', handleGitHubAuth)
+  app.get('/gh/callback', handleGitHubCallback)
+  app.post('/api/auth/logout', handleLogout)
 
   // Me
-  app.get('/api/me', (c) => handleMe(c.get('auth')))
+  app.get('/api/me', handleMe)
 
   // Tokens
-  app.post('/api/tokens', (c) => handleCreateToken(c.req.raw, c.get('auth')))
-  app.get('/api/tokens', (c) => handleListTokens(c.get('auth')))
-  app.delete('/api/tokens/:id', (c) => {
-    const id = c.req.param('id')
-    if (!id) return new Response(JSON.stringify({ error: 'Invalid token ID' }), { status: 400 })
-    return handleDeleteToken(c.req.raw, c.get('auth'), id)
-  })
+  app.post('/api/tokens', handleCreateToken)
+  app.get('/api/tokens', handleListTokens)
+  app.delete('/api/tokens/:id', handleDeleteToken)
 
   // Docs — collection
-  app.get('/api/docs', (c) => handleListDocs(c.req.raw, c.get('auth')))
+  app.get('/api/docs', handleListDocs)
 
-  // Docs — wildcard (catch-all for nested paths)
-  app.get('/api/docs/:path{.+}', (c) => {
-    const path = c.req.param('path')
-    return handleGetDoc(c.req.raw, c.get('auth'), path)
-  })
-  app.put('/api/docs/:path{.+}', (c) => {
-    const path = c.req.param('path')
-    return handleUpsertDoc(c.req.raw, c.get('auth'), path)
-  })
-  app.delete('/api/docs/:path{.+}', (c) => {
-    const path = c.req.param('path')
-    return handleDeleteDoc(c.req.raw, c.get('auth'), path)
-  })
+  // Docs — wildcard
+  app.get('/api/docs/:path{.+}', handleGetDoc)
+  app.put('/api/docs/:path{.+}', handleUpsertDoc)
+  app.delete('/api/docs/:path{.+}', handleDeleteDoc)
 
   // Dev
-  app.get('/api/dev/login', (c) => handleDevLogin())
-  app.post('/api/dev/token', (c) => handleDevCreateToken())
+  app.get('/api/dev/login', handleDevLogin)
+  app.post('/api/dev/token', handleDevCreateToken)
 
   // Homepage
   if (options.homepage) {

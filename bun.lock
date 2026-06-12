@@ -13,6 +13,7 @@
         "kysely-bun-dialects": "^1.0.0",
         "preact": "^10.29.2",
         "short-uuid": "^6.0.3",
+        "zod": "^4.4.3",
       },
       "devDependencies": {
         "@types/bun": "latest",

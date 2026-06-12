@@ -1,14 +1,15 @@
+import type { Context } from 'hono'
 import { getGitHubAuthUrl, exchangeGitHubCode, getGitHubUser, generateState } from '../auth'
 import { createUser, createApiToken } from '../services'
-import { corsHeaders, generateToken } from '../middleware'
+import { generateToken } from '../middleware'
 
 const pendingStates = new Map<string, number>()
 
-export function handleGitHubAuth(_req: Request): Response {
+export function handleGitHubAuth(c: Context): Response {
   if (process.env.NODE_ENV === 'development') {
     return new Response(null, {
       status: 302,
-      headers: { Location: '/api/dev/login', ...corsHeaders() },
+      headers: { Location: '/api/dev/login' },
     })
   }
 
@@ -20,32 +21,28 @@ export function handleGitHubAuth(_req: Request): Response {
   const url = getGitHubAuthUrl(state)
   return new Response(null, {
     status: 302,
-    headers: { Location: url, ...corsHeaders() },
+    headers: { Location: url },
   })
 }
 
-export async function handleGitHubCallback(req: Request): Promise<Response> {
-  const url = new URL(req.url)
-  const code = url.searchParams.get('code')
-  const state = url.searchParams.get('state')
-  const error = url.searchParams.get('error')
+export async function handleGitHubCallback(c: Context): Promise<Response> {
+  const code = c.req.query('code')
+  const state = c.req.query('state')
+  const error = c.req.query('error')
 
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173'
 
   if (error) {
     return new Response(null, {
       status: 302,
-      headers: {
-        Location: `${frontendUrl}/?error=${encodeURIComponent(error)}`,
-        ...corsHeaders(),
-      },
+      headers: { Location: `${frontendUrl}/?error=${encodeURIComponent(error)}` },
     })
   }
 
   if (!code || !state || !pendingStates.has(state)) {
     return new Response(null, {
       status: 302,
-      headers: { Location: `${frontendUrl}/?error=invalid_callback`, ...corsHeaders() },
+      headers: { Location: `${frontendUrl}/?error=invalid_callback` },
     })
   }
 
@@ -68,13 +65,13 @@ window.location.href = '${frontendUrl}'
 
     return new Response(html, {
       status: 200,
-      headers: { 'Content-Type': 'text/html', ...corsHeaders() },
+      headers: { 'Content-Type': 'text/html' },
     })
   } catch (e) {
     console.error('GitHub OAuth error:', e)
     return new Response(null, {
       status: 302,
-      headers: { Location: `${frontendUrl}/?error=auth_failed`, ...corsHeaders() },
+      headers: { Location: `${frontendUrl}/?error=auth_failed` },
     })
   }
 }
@@ -87,6 +84,6 @@ window.location.href = '/'
 </script></body></html>`
 
   return new Response(html, {
-    headers: { 'Content-Type': 'text/html', ...corsHeaders() },
+    headers: { 'Content-Type': 'text/html' },
   })
 }

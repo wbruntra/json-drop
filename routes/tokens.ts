@@ -1,43 +1,44 @@
-import { jsonResponse, generateToken } from '../middleware'
+import type { Context } from 'hono'
+import { generateToken } from '../middleware'
 import { createApiToken, listApiTokens, revokeApiToken } from '../services'
-import type { AuthContext } from '../services/auth'
+import { createTokenSchema, formatZodError } from '../schemas'
 
-export async function handleCreateToken(req: Request, auth: AuthContext): Promise<Response> {
+export async function handleCreateToken(c: Context): Promise<Response> {
+  const auth = c.get('auth')
   if (!auth.user || auth.tokenPermissions !== 'admin') {
-    return jsonResponse({ error: 'Unauthorized' }, 401)
+    return c.json({ error: 'Unauthorized' }, 401)
   }
 
-  const body = (await req.json()) as { name?: string; permissions?: string }
-  const name = body.name || 'Unnamed token'
-  const permissions = body.permissions || 'read_write'
-
-  if (!['read', 'write', 'read_write', 'admin'].includes(permissions)) {
-    return jsonResponse({ error: 'Invalid permissions' }, 400)
+  const rawBody = await c.req.json()
+  const parsed = createTokenSchema.safeParse(rawBody)
+  if (!parsed.success) {
+    return c.json({ error: formatZodError(parsed.error) }, 400)
   }
 
   const rawToken = generateToken()
 
-  await createApiToken(auth.user.id, name, rawToken, permissions)
+  await createApiToken(auth.user.id, parsed.data.name, rawToken, parsed.data.permissions)
 
-  return jsonResponse(
+  return c.json(
     {
       token: rawToken,
-      name,
-      permissions,
+      name: parsed.data.name,
+      permissions: parsed.data.permissions,
       message: 'Token created successfully',
     },
     201,
   )
 }
 
-export async function handleListTokens(auth: AuthContext): Promise<Response> {
+export async function handleListTokens(c: Context): Promise<Response> {
+  const auth = c.get('auth')
   if (!auth.user) {
-    return jsonResponse({ error: 'Not authenticated' }, 401)
+    return c.json({ error: 'Not authenticated' }, 401)
   }
 
   const tokens = await listApiTokens(auth.user.id)
 
-  return jsonResponse(
+  return c.json(
     tokens.map((t) => ({
       id: t.id,
       name: t.name,
@@ -48,24 +49,21 @@ export async function handleListTokens(auth: AuthContext): Promise<Response> {
   )
 }
 
-export async function handleDeleteToken(
-  req: Request,
-  auth: AuthContext,
-  tokenId: string,
-): Promise<Response> {
+export async function handleDeleteToken(c: Context): Promise<Response> {
+  const auth = c.get('auth')
   if (!auth.user || auth.tokenPermissions !== 'admin') {
-    return jsonResponse({ error: 'Unauthorized' }, 401)
+    return c.json({ error: 'Unauthorized' }, 401)
   }
 
-  const id = parseInt(tokenId, 10)
+  const id = parseInt(c.req.param('id')!, 10)
   if (isNaN(id)) {
-    return jsonResponse({ error: 'Invalid token ID' }, 400)
+    return c.json({ error: 'Invalid token ID' }, 400)
   }
 
   const deleted = await revokeApiToken(id, auth.user.id)
   if (!deleted) {
-    return jsonResponse({ error: 'Token not found' }, 404)
+    return c.json({ error: 'Token not found' }, 404)
   }
 
-  return jsonResponse({ deleted: true })
+  return c.json({ deleted: true })
 }
