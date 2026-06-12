@@ -2,6 +2,7 @@ import { jsonResponse } from '../middleware'
 import {
   upsertDocument,
   getDocument,
+  getDocumentByPath,
   listDocuments,
   deleteDocument,
   getUserTotalSize,
@@ -103,7 +104,7 @@ export async function handleUpsertDoc(
     )
   }
 
-  const existingDoc = getDocument(path, auth.user.id)
+  const existingDoc = getDocumentByPath(path, auth.user.id)
   const currentTotal = getUserTotalSize(auth.user.id)
   const sizeDiff = existingDoc ? size - existingDoc.size_bytes : size
   if (currentTotal + sizeDiff > LIMITS.maxTotalSize) {
@@ -131,6 +132,7 @@ export async function handleUpsertDoc(
 
   return jsonResponse(
     {
+      id: doc.id,
       path: doc.path,
       access_mode: doc.access_mode,
       access_secret: doc.access_secret,
@@ -160,6 +162,7 @@ export function handleListDocs(req: Request, auth: AuthContext): Response {
   return jsonResponse({
     prefix: prefix || null,
     docs: docs.map((d) => ({
+      id: d.id,
       path: d.path,
       access_mode: d.access_mode,
       content: JSON.parse(d.content),
@@ -178,18 +181,9 @@ export function handleListDocs(req: Request, auth: AuthContext): Response {
 export async function handleGetDoc(
   req: Request,
   auth: AuthContext,
-  path: string,
+  id: string,
 ): Promise<Response> {
-  if (!auth.user) {
-    return jsonResponse({ error: 'Not authenticated' }, 401)
-  }
-
-  const pathCheck = validatePath(path)
-  if (!pathCheck.valid) {
-    return jsonResponse({ error: pathCheck.error }, 400)
-  }
-
-  const doc = getDocument(path, auth.user.id)
+  const doc = getDocument(id)
   if (!doc) {
     return jsonResponse({ error: 'Document not found' }, 404)
   }
@@ -202,6 +196,7 @@ export async function handleGetDoc(
   }
 
   return jsonResponse({
+    id: doc.id,
     path: doc.path,
     access_mode: doc.access_mode,
     content: JSON.parse(doc.content),
@@ -214,18 +209,13 @@ export async function handleGetDoc(
 export async function handleDeleteDoc(
   req: Request,
   auth: AuthContext,
-  path: string,
+  id: string,
 ): Promise<Response> {
   if (!auth.user) {
     return jsonResponse({ error: 'Not authenticated' }, 401)
   }
 
-  const pathCheck = validatePath(path)
-  if (!pathCheck.valid) {
-    return jsonResponse({ error: pathCheck.error }, 400)
-  }
-
-  const doc = getDocument(path, auth.user.id)
+  const doc = getDocument(id)
   if (!doc) {
     return jsonResponse({ error: 'Document not found' }, 404)
   }
@@ -234,7 +224,7 @@ export async function handleDeleteDoc(
     return jsonResponse({ error: 'Forbidden' }, 403)
   }
 
-  const deleted = deleteDocument(path, auth.user.id)
+  const deleted = deleteDocument(id, auth.user.id)
   if (!deleted) {
     return jsonResponse({ error: 'Delete failed' }, 500)
   }

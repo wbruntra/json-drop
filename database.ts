@@ -1,4 +1,5 @@
 import { Database } from 'bun:sqlite'
+import short from 'short-uuid'
 
 const DB_PATH = process.env.DATABASE_URL || 'db.sqlite'
 
@@ -6,6 +7,8 @@ const db = new Database(DB_PATH, { create: true })
 
 db.run('PRAGMA journal_mode = WAL')
 db.run('PRAGMA foreign_keys = ON')
+
+const translator = short.createTranslator()
 
 export type User = {
   id: number
@@ -26,6 +29,7 @@ export type ApiToken = {
 }
 
 export type Document = {
+  id: string
   path: string
   user_id: number
   content: string
@@ -97,9 +101,15 @@ export function upsertDocument(
   accessSecret: string | null,
   sizeBytes: number,
 ): Document {
+  const existing = db
+    .prepare('SELECT id FROM documents WHERE user_id = ? AND path = ?')
+    .get(userId, path) as { id: string } | null
+
+  const id = existing?.id || translator.generate()
+
   const stmt = db.prepare(
-    `INSERT INTO documents (path, user_id, content, access_mode, access_secret, size_bytes)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO documents (id, path, user_id, content, access_mode, access_secret, size_bytes)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, path) DO UPDATE SET
        content = excluded.content,
        access_mode = excluded.access_mode,
@@ -108,10 +118,14 @@ export function upsertDocument(
        updated_at = CURRENT_TIMESTAMP
      RETURNING *`,
   )
-  return stmt.get(path, userId, content, accessMode, accessSecret, sizeBytes) as Document
+  return stmt.get(id, path, userId, content, accessMode, accessSecret, sizeBytes) as Document
 }
 
-export function getDocument(path: string, userId: number): Document | null {
+export function getDocument(id: string): Document | null {
+  return db.prepare('SELECT * FROM documents WHERE id = ?').get(id) as Document | null
+}
+
+export function getDocumentByPath(path: string, userId: number): Document | null {
   return db
     .prepare('SELECT * FROM documents WHERE path = ? AND user_id = ?')
     .get(path, userId) as Document | null
@@ -136,10 +150,8 @@ export function getUserTotalSize(userId: number): number {
   return result.total
 }
 
-export function deleteDocument(path: string, userId: number): boolean {
-  const result = db
-    .prepare('DELETE FROM documents WHERE path = ? AND user_id = ?')
-    .run(path, userId)
+export function deleteDocument(id: string, userId: number): boolean {
+  const result = db.prepare('DELETE FROM documents WHERE id = ? AND user_id = ?').run(id, userId)
   return result.changes > 0
 }
 
