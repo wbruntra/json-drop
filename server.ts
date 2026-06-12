@@ -40,25 +40,25 @@ export function createServer(options: ServerOptions = {}) {
     '/api/auth/logout': withMiddleware(method('POST', handleLogout)),
 
     '/api/me': withMiddleware(
-      method('GET', (req) => {
-        const auth = extractAuth(req)
+      method('GET', async (req) => {
+        const auth = await extractAuth(req)
         return handleMe(auth)
       }),
     ),
 
     '/api/tokens': withMiddleware(
       method('POST', async (req) => {
-        const auth = extractAuth(req)
+        const auth = await extractAuth(req)
         return handleCreateToken(req, auth)
       }),
-      method('GET', (req) => {
-        const auth = extractAuth(req)
+      method('GET', async (req) => {
+        const auth = await extractAuth(req)
         return handleListTokens(auth)
       }),
     ),
     '/api/tokens/:id': withMiddleware(
-      method('DELETE', (req) => {
-        const auth = extractAuth(req)
+      method('DELETE', async (req) => {
+        const auth = await extractAuth(req)
         const bunReq = req as BunRequest
         const id = bunReq.params.id
         if (!id) return jsonResponse({ error: 'Invalid token ID' }, 400)
@@ -67,22 +67,22 @@ export function createServer(options: ServerOptions = {}) {
     ),
 
     '/api/docs': withMiddleware(
-      method('GET', (req) => {
-        const auth = extractAuth(req)
+      method('GET', async (req) => {
+        const auth = await extractAuth(req)
         return handleListDocs(req, auth)
       }),
     ),
     '/api/docs/*': withMiddleware(
-      method('GET', (req) => {
-        const auth = extractAuth(req)
+      method('GET', async (req) => {
+        const auth = await extractAuth(req)
         return handleGetDoc(req, auth, docPath(req))
       }),
       method('PUT', async (req) => {
-        const auth = extractAuth(req)
+        const auth = await extractAuth(req)
         return handleUpsertDoc(req, auth, docPath(req))
       }),
-      method('DELETE', (req) => {
-        const auth = extractAuth(req)
+      method('DELETE', async (req) => {
+        const auth = await extractAuth(req)
         return handleDeleteDoc(req, auth, docPath(req))
       }),
     ),

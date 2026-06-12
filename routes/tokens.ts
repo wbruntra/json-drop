@@ -1,6 +1,6 @@
 import { jsonResponse, generateToken, hashToken } from '../middleware'
-import { createApiToken, listApiTokens, revokeApiToken } from '../database'
-import type { AuthContext } from '../middleware'
+import { createApiToken, listApiTokens, revokeApiToken } from '../services'
+import type { AuthContext } from '../services/auth'
 
 export async function handleCreateToken(req: Request, auth: AuthContext): Promise<Response> {
   if (!auth.user || auth.tokenPermissions !== 'admin') {
@@ -18,7 +18,7 @@ export async function handleCreateToken(req: Request, auth: AuthContext): Promis
   const rawToken = generateToken()
   const tokenHash = hashToken(rawToken)
 
-  createApiToken(auth.user.id, name, tokenHash, permissions)
+  await createApiToken(auth.user.id, name, tokenHash, permissions)
 
   return jsonResponse(
     {
@@ -31,12 +31,12 @@ export async function handleCreateToken(req: Request, auth: AuthContext): Promis
   )
 }
 
-export function handleListTokens(auth: AuthContext): Response {
+export async function handleListTokens(auth: AuthContext): Promise<Response> {
   if (!auth.user) {
     return jsonResponse({ error: 'Not authenticated' }, 401)
   }
 
-  const tokens = listApiTokens(auth.user.id)
+  const tokens = await listApiTokens(auth.user.id)
 
   return jsonResponse(
     tokens.map((t) => ({
@@ -62,7 +62,7 @@ export async function handleDeleteToken(
     return jsonResponse({ error: 'Invalid token ID' }, 400)
   }
 
-  const deleted = revokeApiToken(id, auth.user.id)
+  const deleted = await revokeApiToken(id, auth.user.id)
   if (!deleted) {
     return jsonResponse({ error: 'Token not found' }, 404)
   }

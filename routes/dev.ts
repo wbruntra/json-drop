@@ -1,16 +1,16 @@
-import { createUser, createApiToken } from '../database'
+import { createUser, createApiToken } from '../services'
 import { jsonResponse, corsHeaders, generateToken, hashToken } from '../middleware'
 
-function createUserWithToken(): { token: string } {
+async function createUserWithToken(): Promise<{ token: string }> {
   const mockGithubId = `dev-${Date.now()}`
   const mockEmail = `${mockGithubId}@dev.local`
   const mockDisplayName = `Dev User ${mockGithubId.split('-')[1]}`
 
-  const user = createUser(mockGithubId, mockEmail, mockDisplayName)
+  const user = await createUser(mockGithubId, mockEmail, mockDisplayName)
 
   const rawToken = generateToken()
   const tokenHash = hashToken(rawToken)
-  createApiToken(user.id, 'Dev Admin Token', tokenHash, 'admin')
+  await createApiToken(user.id, 'Dev Admin Token', tokenHash, 'admin')
 
   console.log('\n=== DEV LOGIN ===')
   console.log(`Created user: ${mockDisplayName} (ID: ${user.id})`)
@@ -20,12 +20,12 @@ function createUserWithToken(): { token: string } {
   return { token: rawToken }
 }
 
-export function handleDevLogin(): Response {
+export async function handleDevLogin(): Promise<Response> {
   if (process.env.NODE_ENV !== 'development') {
     return jsonResponse({ error: 'Not available in production' }, 404)
   }
 
-  const { token } = createUserWithToken()
+  const { token } = await createUserWithToken()
 
   const html = `<!doctype html>
 <html><body><script>
@@ -38,12 +38,12 @@ window.location.href = '/'
   })
 }
 
-export function handleDevCreateToken(): Response {
+export async function handleDevCreateToken(): Promise<Response> {
   if (process.env.NODE_ENV !== 'development') {
     return jsonResponse({ error: 'Not available in production' }, 404)
   }
 
-  const { token } = createUserWithToken()
+  const { token } = await createUserWithToken()
   return jsonResponse({
     token,
     permissions: 'admin',

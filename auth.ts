@@ -1,5 +1,5 @@
 import { SignJWT, jwtVerify } from 'jose'
-import type { User } from './database'
+import type { User } from './kysely-db'
 
 const SESSION_SECRET = new TextEncoder().encode(
   process.env.SESSION_SECRET || 'change-me-to-a-random-string',

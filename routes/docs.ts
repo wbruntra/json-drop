@@ -7,8 +7,8 @@ import {
   listDocuments,
   deleteDocument,
   getUserTotalSize,
-} from '../database'
-import type { AuthContext } from '../middleware'
+} from '../services'
+import type { AuthContext } from '../services/auth'
 import { LIMITS } from '../limits'
 
 const PATH_SEGMENT_REGEX = /^[a-zA-Z0-9_-]+$/
@@ -75,14 +75,14 @@ function formatMb(bytes: number): string {
 
 // Unauthenticated write using an access secret. Only updates content on an
 // existing document — the owner, access mode, and secret stay unchanged.
-function handleSecretUpsert(
+async function handleSecretUpsert(
   auth: AuthContext,
   path: string,
   secret: string,
   content: string,
   size: number,
-): Response {
-  const doc = getDocumentByPathAndSecret(path, secret)
+): Promise<Response> {
+  const doc = await getDocumentByPathAndSecret(path, secret)
   if (!doc) {
     return jsonResponse({ error: 'Document not found' }, 404)
   }
@@ -91,7 +91,7 @@ function handleSecretUpsert(
     return jsonResponse({ error: 'Forbidden' }, 403)
   }
 
-  const currentTotal = getUserTotalSize(doc.user_id)
+  const currentTotal = await getUserTotalSize(doc.user_id)
   if (currentTotal - doc.size_bytes + size > LIMITS.maxTotalSize) {
     return jsonResponse(
       {
@@ -101,7 +101,7 @@ function handleSecretUpsert(
     )
   }
 
-  const updated = upsertDocument(
+  const updated = await upsertDocument(
     doc.path,
     doc.user_id,
     content,
@@ -158,8 +158,8 @@ export async function handleUpsertDoc(
     return jsonResponse({ error: 'Invalid access_mode' }, 400)
   }
 
-  const existingDoc = getDocumentByPath(path, auth.user.id)
-  const currentTotal = getUserTotalSize(auth.user.id)
+  const existingDoc = await getDocumentByPath(path, auth.user.id)
+  const currentTotal = await getUserTotalSize(auth.user.id)
   const sizeDiff = existingDoc ? size - existingDoc.size_bytes : size
   if (currentTotal + sizeDiff > LIMITS.maxTotalSize) {
     return jsonResponse(
@@ -182,7 +182,7 @@ export async function handleUpsertDoc(
     accessSecret = accessMode !== 'public' ? crypto.randomUUID() : null
   }
 
-  const doc = upsertDocument(path, auth.user.id, content, accessMode, accessSecret, size)
+  const doc = await upsertDocument(path, auth.user.id, content, accessMode, accessSecret, size)
 
   return jsonResponse(
     {
@@ -202,7 +202,7 @@ export async function handleUpsertDoc(
   )
 }
 
-export function handleListDocs(req: Request, auth: AuthContext): Response {
+export async function handleListDocs(req: Request, auth: AuthContext): Promise<Response> {
   if (!auth.user) {
     return jsonResponse({ error: 'Not authenticated' }, 401)
   }
@@ -210,8 +210,8 @@ export function handleListDocs(req: Request, auth: AuthContext): Response {
   const url = new URL(req.url)
   const prefix = url.searchParams.get('prefix') || undefined
 
-  const docs = listDocuments(auth.user.id, prefix)
-  const total = getUserTotalSize(auth.user.id)
+  const docs = await listDocuments(auth.user.id, prefix)
+  const total = await getUserTotalSize(auth.user.id)
 
   return jsonResponse({
     prefix: prefix || null,
@@ -237,7 +237,7 @@ export async function handleGetDoc(
   auth: AuthContext,
   id: string,
 ): Promise<Response> {
-  const doc = getDocument(id)
+  const doc = await getDocument(id)
   if (!doc) {
     return jsonResponse({ error: 'Document not found' }, 404)
   }
@@ -269,7 +269,7 @@ export async function handleDeleteDoc(
     return jsonResponse({ error: 'Not authenticated' }, 401)
   }
 
-  const doc = getDocument(id)
+  const doc = await getDocument(id)
   if (!doc) {
     return jsonResponse({ error: 'Document not found' }, 404)
   }
@@ -278,7 +278,7 @@ export async function handleDeleteDoc(
     return jsonResponse({ error: 'Forbidden' }, 403)
   }
 
-  const deleted = deleteDocument(id, auth.user.id)
+  const deleted = await deleteDocument(id, auth.user.id)
   if (!deleted) {
     return jsonResponse({ error: 'Delete failed' }, 500)
   }

@@ -13,7 +13,9 @@
 
 ## Patterns That Work
 
-- `kysely-db.ts` is the Kysely-based database connector (next-gen replacement for `database.ts`). Currently has Kysely document CRUD (async); user/token ops still use raw `bun:sqlite`. `kysely-types.ts` is auto-generated via `bun run codegen` (`codegen.ts` introspects the SQLite schema with pragmas including FK info for correct nullability).
+- `services/` is the data-access layer. All DB queries use Kysely (async). Routes only call services — never database.ts directly. `services/auth.ts` handles token-based auth (`extractAuth`).
+- `kysely-db.ts` is the database lifecycle module (init, getDb, getRawDb, types). `kysely-types.ts` is auto-generated via `bun run codegen` (`codegen.ts` introspects the SQLite schema with pragmas including FK info for correct nullability).
+- `database.ts` delegates to `kysely-db.ts` for the connection (same underlying `bun:sqlite` Database). Its sync functions still work for tests and incremental migration. Eventually `database.ts` will be removed.
 - Run `bun run codegen` after schema changes to regenerate `kysely-types.ts`.
 
 ## Patterns That Don't Work

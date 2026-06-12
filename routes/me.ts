@@ -1,5 +1,5 @@
 import { jsonResponse } from '../middleware'
-import type { AuthContext } from '../middleware'
+import type { AuthContext } from '../services/auth'
 
 export function handleMe(auth: AuthContext): Response {
   if (!auth.user) {

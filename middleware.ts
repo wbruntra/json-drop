@@ -1,15 +1,10 @@
-import { getApiTokenByHash, getUser } from './database'
 import { createHash } from 'crypto'
+import { extractAuth as extractAuthService } from './services/auth'
+import type { AuthContext as AuthContextService } from './services/auth'
 
-export type AuthContext = {
-  user: {
-    id: number
-    github_id: string
-    email: string | null
-    display_name: string | null
-  } | null
-  tokenPermissions: string | null
-}
+export type AuthContext = AuthContextService
+
+export { type AuthContextService as AuthContextTyped }
 
 const rateLimitMap = new Map<string, { count: number; resetAt: number }>()
 
@@ -47,24 +42,8 @@ export function checkRateLimit(key: string): boolean {
   return true
 }
 
-export function extractAuth(req: Request): AuthContext {
-  const ctx: AuthContext = { user: null, tokenPermissions: null }
-
-  const authHeader = req.headers.get('Authorization')
-  if (authHeader?.startsWith('Bearer ')) {
-    const rawToken = authHeader.slice(7)
-    const tokenHash = hashToken(rawToken)
-    const token = getApiTokenByHash(tokenHash)
-    if (token) {
-      const user = getUser(token.user_id)
-      if (user) {
-        ctx.user = user
-        ctx.tokenPermissions = token.permissions
-      }
-    }
-  }
-
-  return ctx
+export function extractAuth(req: Request): Promise<AuthContext> {
+  return extractAuthService(req)
 }
 
 export function getRateLimitKey(req: Request): string {
