@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test'
 import { createServer } from './server'
-import { hashToken, generateToken } from './middleware'
+import { generateToken } from './middleware'
 import { initDatabase, createUser, createApiToken, upsertDocument } from './database'
 import { LIMITS } from './limits'
 
@@ -25,10 +25,10 @@ beforeEach(async () => {
   userRecord = createUser('github-123', 'test@example.com', 'Test User')
 
   adminToken = generateToken()
-  createApiToken(userRecord.id, 'Admin Token', hashToken(adminToken), 'admin')
+  createApiToken(userRecord.id, 'Admin Token', adminToken, 'admin')
 
   readToken = generateToken()
-  createApiToken(userRecord.id, 'Read Token', hashToken(readToken), 'read')
+  createApiToken(userRecord.id, 'Read Token', readToken, 'read')
 })
 
 function authHeader(token: string): Record<string, string> {
@@ -87,7 +87,7 @@ describe('API Tokens', () => {
 
   test('DELETE /api/tokens/:id revokes a token', async () => {
     const tok = generateToken()
-    const record = createApiToken(userRecord.id, 'To Delete', hashToken(tok), 'read')
+    const record = createApiToken(userRecord.id, 'To Delete', tok, 'read')
 
     const res = await fetch(`${baseUrl}/api/tokens/${record.id}`, {
       method: 'DELETE',

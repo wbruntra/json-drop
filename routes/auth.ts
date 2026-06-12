@@ -1,6 +1,6 @@
 import { getGitHubAuthUrl, exchangeGitHubCode, getGitHubUser, generateState } from '../auth'
 import { createUser, createApiToken } from '../services'
-import { corsHeaders, generateToken, hashToken } from '../middleware'
+import { corsHeaders, generateToken } from '../middleware'
 
 const pendingStates = new Map<string, number>()
 
@@ -58,8 +58,7 @@ export async function handleGitHubCallback(req: Request): Promise<Response> {
     const user = await createUser(ghUser.id, ghUser.email, ghUser.name || ghUser.login)
 
     const rawToken = generateToken()
-    const tokenHash = hashToken(rawToken)
-    await createApiToken(user.id, 'Default Token', tokenHash, 'admin')
+    await createApiToken(user.id, 'Default Token', rawToken, 'admin')
 
     const html = `<!doctype html>
 <html><body><script>

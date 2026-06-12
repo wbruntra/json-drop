@@ -1,4 +1,4 @@
-import { jsonResponse, generateToken, hashToken } from '../middleware'
+import { jsonResponse, generateToken } from '../middleware'
 import { createApiToken, listApiTokens, revokeApiToken } from '../services'
 import type { AuthContext } from '../services/auth'
 
@@ -16,9 +16,8 @@ export async function handleCreateToken(req: Request, auth: AuthContext): Promis
   }
 
   const rawToken = generateToken()
-  const tokenHash = hashToken(rawToken)
 
-  await createApiToken(auth.user.id, name, tokenHash, permissions)
+  await createApiToken(auth.user.id, name, rawToken, permissions)
 
   return jsonResponse(
     {
@@ -42,6 +41,7 @@ export async function handleListTokens(auth: AuthContext): Promise<Response> {
     tokens.map((t) => ({
       id: t.id,
       name: t.name,
+      token: t.token_hash,
       permissions: t.permissions,
       created_at: t.created_at,
     })),

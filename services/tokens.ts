@@ -4,7 +4,7 @@ import type { ApiToken } from '../kysely-db'
 export async function createApiToken(
   userId: number,
   name: string,
-  tokenHash: string,
+  token: string,
   permissions: string,
 ): Promise<ApiToken> {
   return getDb()
@@ -12,7 +12,7 @@ export async function createApiToken(
     .values({
       user_id: userId,
       name,
-      token_hash: tokenHash,
+      token_hash: token,
       permissions,
     })
     .returningAll()
@@ -28,11 +28,11 @@ export async function listApiTokens(userId: number): Promise<ApiToken[]> {
     .execute()
 }
 
-export async function getApiTokenByHash(tokenHash: string): Promise<ApiToken | null> {
+export async function getApiToken(token: string): Promise<ApiToken | null> {
   const result = await getDb()
     .selectFrom('api_tokens')
     .selectAll()
-    .where('token_hash', '=', tokenHash)
+    .where('token_hash', '=', token)
     .where('revoked_at', 'is', null)
     .executeTakeFirst()
   return result ?? null

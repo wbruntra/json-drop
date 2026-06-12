@@ -67,13 +67,13 @@ export function getUserByGithubId(githubId: string): User | null {
 export function createApiToken(
   userId: number,
   name: string,
-  tokenHash: string,
+  token: string,
   permissions: string,
 ): ApiToken {
   const stmt = getRawDb().prepare(
     `INSERT INTO api_tokens (user_id, name, token_hash, permissions) VALUES (?, ?, ?, ?) RETURNING *`,
   )
-  return stmt.get(userId, name, tokenHash, permissions) as ApiToken
+  return stmt.get(userId, name, token, permissions) as ApiToken
 }
 
 export function listApiTokens(userId: number): ApiToken[] {
@@ -82,10 +82,10 @@ export function listApiTokens(userId: number): ApiToken[] {
     .all(userId) as ApiToken[]
 }
 
-export function getApiTokenByHash(tokenHash: string): ApiToken | null {
+export function getApiTokenByHash(token: string): ApiToken | null {
   return getRawDb()
     .prepare('SELECT * FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL')
-    .get(tokenHash) as ApiToken | null
+    .get(token) as ApiToken | null
 }
 
 export function revokeApiToken(id: number, userId: number): boolean {

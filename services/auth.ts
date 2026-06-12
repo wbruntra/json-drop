@@ -1,5 +1,4 @@
-import { createHash } from 'crypto'
-import { getApiTokenByHash } from './tokens'
+import { getApiToken } from './tokens'
 import { getUser } from './users'
 import type { User } from '../kysely-db'
 
@@ -14,15 +13,14 @@ export async function extractAuth(req: Request): Promise<AuthContext> {
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return ctx
 
-  const rawToken = authHeader.slice(7)
-  const tokenHash = createHash('sha256').update(rawToken).digest('hex')
-  const token = await getApiTokenByHash(tokenHash)
-  if (!token) return ctx
+  const token = authHeader.slice(7)
+  const apiToken = await getApiToken(token)
+  if (!apiToken) return ctx
 
-  const user = await getUser(token.user_id)
+  const user = await getUser(apiToken.user_id)
   if (!user) return ctx
 
   ctx.user = user
-  ctx.tokenPermissions = token.permissions
+  ctx.tokenPermissions = apiToken.permissions
   return ctx
 }

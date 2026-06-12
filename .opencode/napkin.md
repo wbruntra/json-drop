@@ -20,7 +20,7 @@
 
 ## Patterns That Don't Work
 
-- Bun `Bun.serve()` wildcard routes (`/api/docs/*`) do NOT populate `req.params['*']` — params is empty for wildcards (verified empirically + bun-types docs). Recover the subpath from `new URL(req.url).pathname` instead. Only `:named` params populate `req.params`.
+- Hono `*` wildcard does NOT populate `c.req.param('*')` (returns undefined). Use `:param{.+}` regex pattern for multi-segment catch-all routes instead. `c.req.param('param')` returns the full sub-path.
 - Module-level `new Database(process.env.X)` at import time forces tests into env-var-before-import ordering hacks. Use explicit init instead.
 
 ## Domain Notes

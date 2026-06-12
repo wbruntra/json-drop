@@ -1,5 +1,5 @@
 import { createUser, createApiToken } from '../services'
-import { jsonResponse, corsHeaders, generateToken, hashToken } from '../middleware'
+import { jsonResponse, corsHeaders, generateToken } from '../middleware'
 
 async function createUserWithToken(): Promise<{ token: string }> {
   const mockGithubId = `dev-${Date.now()}`
@@ -9,8 +9,7 @@ async function createUserWithToken(): Promise<{ token: string }> {
   const user = await createUser(mockGithubId, mockEmail, mockDisplayName)
 
   const rawToken = generateToken()
-  const tokenHash = hashToken(rawToken)
-  await createApiToken(user.id, 'Dev Admin Token', tokenHash, 'admin')
+  await createApiToken(user.id, 'Dev Admin Token', rawToken, 'admin')
 
   console.log('\n=== DEV LOGIN ===')
   console.log(`Created user: ${mockDisplayName} (ID: ${user.id})`)
