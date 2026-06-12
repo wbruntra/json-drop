@@ -1,4 +1,4 @@
-import { initDatabase } from './database'
+import { initDatabase } from './kysely-db'
 import { createServer } from './server'
 import type { ServerOptions } from './server'
 

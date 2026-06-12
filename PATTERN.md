@@ -30,7 +30,6 @@ A Bun + Hono + Kysely + SQLite backend pattern for API servers.
 ├── kysely-types.ts        # Auto-generated table types (don't edit)
 ├── codegen.ts             # Generates kysely-types.ts from SQLite schema
 ├── migrate.ts             # Runs .sql migration files in order
-├── database.ts            # Legacy sync bun:sqlite wrapper (for tests/transition)
 ├── migrations/            # Ordered .sql migration files
 │   └── 001_initial.sql
 ├── services/              # Data access layer — Kysely queries only
@@ -54,20 +53,24 @@ A Bun + Hono + Kysely + SQLite backend pattern for API servers.
 
 ### Migrations (`migrate.ts`)
 
-Plain SQL files in `migrations/`, sorted alphabetically. Each file runs inside a transaction and is recorded in `_migrations`.
+TypeScript migration files in `migrations/` implementing `up`/`down` functions. The migrations are executed via Kysely's built-in `Migrator` and `FileMigrationProvider`.
 
-```sql
--- migrations/001_initial.sql
-CREATE TABLE IF NOT EXISTS users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  github_id TEXT UNIQUE NOT NULL,
-  ...
-);
+```typescript
+// migrations/001_initial.ts
+import { Kysely } from 'kysely'
+
+export async function up(db: Kysely<any>): Promise<void> {
+  await db.schema
+    .createTable('users')
+    .addColumn('id', 'integer', (col) => col.primaryKey().autoIncrement())
+    // ...
+    .execute()
+}
 ```
 
 ```bash
-bun migrate                    # standalone
-await runMigrations(db)        # called by initDatabase()
+bun migrate                    # standalone CLI runner
+await runMigrations(db)        # programmatically called by initDatabase()
 ```
 
 The migrator sets `PRAGMA journal_mode = WAL` and `PRAGMA foreign_keys = ON`.
@@ -294,7 +297,6 @@ Key points:
 - **Bun HTMLBundle**: Bun's HTML import bundles (HMR, CSS, TSX) only work when returned directly from `Bun.serve()`'s `fetch`. Intercept the homepage route in the `Bun.serve()` wrapper rather than Hono.
 - **Hono middlewares**: `cors()` uses `hono/cors`, not hand-rolled headers. `c.json()` replaces `new Response(JSON.stringify(...))`. Hono's `cors()` middleware adds CORS headers to every response automatically — no need for manual `corsHeaders()`.
 - **Module-level DB init**: Never call `new Database(...)` at module top level. Always use `initDatabase()` explicitly.
-- **Sync vs async**: `database.ts` provides sync `bun:sqlite` wrappers for transitional/test use. New code uses the async Kysely services in `services/`.
 - **FK nullability**: SQLite's `PRAGMA table_info.notnull` is `0` for foreign key columns even when they're effectively NOT NULL. The codegen queries `PRAGMA foreign_key_list` to correct this.
 - **Zod v4**: Uses `err.issues` (not `err.errors`), and `.refine()` takes `{ message: '...' }` options (not a callback returning `{ message }`).
 

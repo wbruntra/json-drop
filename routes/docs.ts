@@ -24,9 +24,12 @@ function canRead(
   if (doc.access_mode === 'public') return true
   if (doc.access_mode === 'public_read_secret_write') return true
   if (doc.access_mode === 'private') {
-    if (auth.user?.id === doc.user_id) return true
-    if (auth.tokenPermissions && ['read', 'read_write', 'admin'].includes(auth.tokenPermissions))
+    if (auth.user?.id === doc.user_id) {
+      if (auth.tokenPermissions) {
+        return ['read', 'read_write', 'admin'].includes(auth.tokenPermissions)
+      }
       return true
+    }
     if (secret && doc.access_secret && secret === doc.access_secret) return true
   }
   return false
@@ -37,9 +40,12 @@ function canWrite(
   doc: { user_id: number; access_mode: string; access_secret: string | null },
   secret: string | null,
 ): boolean {
-  if (auth.user?.id === doc.user_id) return true
-  if (auth.tokenPermissions && ['write', 'read_write', 'admin'].includes(auth.tokenPermissions))
+  if (auth.user?.id === doc.user_id) {
+    if (auth.tokenPermissions) {
+      return ['write', 'read_write', 'admin'].includes(auth.tokenPermissions)
+    }
     return true
+  }
   if (['public_read_secret_write', 'private'].includes(doc.access_mode)) {
     if (secret && doc.access_secret && secret === doc.access_secret) return true
   }
@@ -108,6 +114,14 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
   const secret = c.req.query('secret') ?? null
   if (!auth.user && !secret) {
     return c.json({ error: 'Not authenticated' }, 401)
+  }
+
+  if (
+    auth.user &&
+    auth.tokenPermissions &&
+    !['write', 'read_write', 'admin'].includes(auth.tokenPermissions)
+  ) {
+    return c.json({ error: 'Forbidden' }, 403)
   }
 
   const rawBody = await c.req.json()
@@ -179,6 +193,10 @@ export async function handleListDocs(c: Context): Promise<Response> {
     return c.json({ error: 'Not authenticated' }, 401)
   }
 
+  if (auth.tokenPermissions && !['read', 'read_write', 'admin'].includes(auth.tokenPermissions)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
   const prefix = c.req.query('prefix') || undefined
 
   const docs = await listDocuments(auth.user.id, prefix)
@@ -235,6 +253,10 @@ export async function handleDeleteDoc(c: Context): Promise<Response> {
     return c.json({ error: 'Not authenticated' }, 401)
   }
 
+  if (auth.tokenPermissions && !['write', 'read_write', 'admin'].includes(auth.tokenPermissions)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
   const id = c.req.param('path')!
 
   const doc = await getDocument(id)
@@ -242,7 +264,7 @@ export async function handleDeleteDoc(c: Context): Promise<Response> {
     return c.json({ error: 'Document not found' }, 404)
   }
 
-  if (auth.user.id !== doc.user_id && auth.tokenPermissions !== 'admin') {
+  if (auth.user.id !== doc.user_id) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 

@@ -1,26 +1,15 @@
 import axios from 'axios'
 
-const token = 'jd_66da9a4246eb4cbc890d9ca9e29a014f41cb3886bdd5459581add6e62e1bef11'
+const token = 'jd_40e73e1b73bd4670b26f0d3bd48dd2676d7ecce6c8ab4ea18d1721265822b8f0'
+const PORT = process.env.PORT || 11099
 
-const res = await axios.post(
-  'http://localhost:3000/api/docs',
-  {
-    name: 'config',
-    content: { theme: 'light' },
-    access_mode: 'public',
+const {
+  data: { docs, storage },
+} = await axios.get(`http://localhost:${PORT}/api/docs`, {
+  headers: {
+    Authorization: `Bearer ${token}`,
   },
-  {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-  },
-)
+})
 
-console.log(res.data)
-// const { id, access_secret } = await res.json()
-
-// console.log('id', id)
-// console.log('access_secret', access_secret)
-
-// curl http://localhost:3000/api/docs/5GQG2dVtJH9zVWti9X79D6
+console.log('docs', docs)
+console.log('storage', storage)

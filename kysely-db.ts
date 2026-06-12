@@ -45,11 +45,14 @@ export async function initDatabase(
 ): Promise<Kysely<DatabaseSchema>> {
   rawDb?.close()
   rawDb = new Database(path, { create: true })
-  await runMigrations(rawDb, { silent: options.silent })
+  rawDb.run('PRAGMA journal_mode = WAL')
+  rawDb.run('PRAGMA foreign_keys = ON')
 
   kysely = new Kysely<DatabaseSchema>({
     dialect: new BunSqliteDialect({ database: rawDb }),
   })
+
+  await runMigrations(kysely, { silent: options.silent })
 
   return kysely
 }

@@ -1,54 +1,66 @@
-import { Database } from 'bun:sqlite'
-import { readdir, readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { promises as fs } from 'node:fs'
+import * as path from 'node:path'
+import { Kysely } from 'kysely'
+import { Migrator, FileMigrationProvider } from 'kysely/migration'
 
 export async function runMigrations(
-  db: Database,
-  options: { dir?: string; silent?: boolean } = {},
+  db: Kysely<any>,
+  options: { silent?: boolean } = {},
 ): Promise<void> {
   const log = options.silent ? () => {} : console.log
 
-  db.run('PRAGMA journal_mode = WAL')
-  db.run('PRAGMA foreign_keys = ON')
+  const migrator = new Migrator({
+    db,
+    provider: new FileMigrationProvider({
+      fs,
+      path,
+      migrationFolder: path.join(import.meta.dir, 'migrations'),
+    }),
+  })
 
-  db.run(`
-    CREATE TABLE IF NOT EXISTS _migrations (
-      name TEXT PRIMARY KEY,
-      applied_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `)
+  const { error, results } = await migrator.migrateToLatest()
 
-  const dir = options.dir || join(import.meta.dir, 'migrations')
-  const files = await readdir(dir)
-  const sqlFiles = files.filter((f) => f.endsWith('.sql')).sort()
-
-  const applied = new Set(
-    (db.prepare('SELECT name FROM _migrations').all() as { name: string }[]).map((r) => r.name),
-  )
-
-  for (const file of sqlFiles) {
-    if (applied.has(file)) {
-      log(`  Skipping ${file} (already applied)`)
-      continue
+  if (results) {
+    for (const it of results) {
+      if (it.status === 'Success') {
+        log(`  ✓ Applied migration: ${it.migrationName}`)
+      } else if (it.status === 'Error') {
+        log(`  ✗ Failed migration: ${it.migrationName}`)
+      }
     }
+  }
 
-    log(`  Applying ${file}...`)
-    const sql = await readFile(join(dir, file), 'utf-8')
-
-    db.transaction(() => {
-      db.run(sql)
-      db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file)
-    })()
-
-    log(`  ✓ Applied ${file}`)
+  if (error) {
+    if (!options.silent) {
+      console.error('Migration failed:', error)
+    }
+    throw error
   }
 }
 
 if (import.meta.main) {
   const dbPath = process.env.DATABASE_URL || 'db.sqlite'
-  const db = new Database(dbPath, { create: true })
   console.log(`Running migrations on ${dbPath}...`)
-  await runMigrations(db)
-  console.log('Migrations complete.\n')
-  db.close()
+
+  const { Database } = await import('bun:sqlite')
+  const { BunSqliteDialect } = await import('kysely-bun-dialects')
+
+  const rawDb = new Database(dbPath, { create: true })
+  rawDb.run('PRAGMA journal_mode = WAL')
+  rawDb.run('PRAGMA foreign_keys = ON')
+
+  const db = new Kysely<any>({
+    dialect: new BunSqliteDialect({ database: rawDb }),
+  })
+
+  try {
+    await runMigrations(db)
+    console.log('Migrations complete.\n')
+  } catch (err) {
+    console.error(err)
+    process.exit(1)
+  } finally {
+    await db.destroy()
+    rawDb.close()
+  }
 }

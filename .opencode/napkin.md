@@ -28,4 +28,4 @@
 ## Domain Notes
 
 - Access modes: public / public_read_secret_write / private. Secret-based unauthenticated writes go through `handleSecretUpsert` in routes/docs.ts (content-only update; owner/mode/secret unchanged).
-- Possible security gap (flagged 2026-06-12, not fixed): `canRead` in routes/docs.ts grants private-doc reads to ANY valid token with read perms, regardless of whether the token's user owns the doc.
+- Security Gap Resolved (2026-06-12): Restricted token checks in `canRead`/`canWrite` inside `routes/docs.ts` to require that the token belongs to the document owner. Added integration tests to verify.

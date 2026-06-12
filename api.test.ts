@@ -1,13 +1,15 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test'
 import { createServer } from './server'
 import { generateToken } from './middleware'
-import { initDatabase, createUser, createApiToken, upsertDocument } from './database'
+import { initDatabase } from './kysely-db'
+import { createUser, createApiToken, upsertDocument } from './services'
 import { LIMITS } from './limits'
 
 let server: ReturnType<typeof createServer>
 let baseUrl: string
 let adminToken: string
 let readToken: string
+let writeToken: string
 let userRecord: { id: number }
 
 beforeAll(() => {
@@ -22,13 +24,16 @@ afterAll(() => {
 beforeEach(async () => {
   await initDatabase(':memory:', { silent: true })
 
-  userRecord = createUser('github-123', 'test@example.com', 'Test User')
+  userRecord = await createUser('github-123', 'test@example.com', 'Test User')
 
   adminToken = generateToken()
-  createApiToken(userRecord.id, 'Admin Token', adminToken, 'admin')
+  await createApiToken(userRecord.id, 'Admin Token', adminToken, 'admin')
 
   readToken = generateToken()
-  createApiToken(userRecord.id, 'Read Token', readToken, 'read')
+  await createApiToken(userRecord.id, 'Read Token', readToken, 'read')
+
+  writeToken = generateToken()
+  await createApiToken(userRecord.id, 'Write Token', writeToken, 'write')
 })
 
 function authHeader(token: string): Record<string, string> {
@@ -87,7 +92,7 @@ describe('API Tokens', () => {
 
   test('DELETE /api/tokens/:id revokes a token', async () => {
     const tok = generateToken()
-    const record = createApiToken(userRecord.id, 'To Delete', tok, 'read')
+    const record = await createApiToken(userRecord.id, 'To Delete', tok, 'read')
 
     const res = await fetch(`${baseUrl}/api/tokens/${record.id}`, {
       method: 'DELETE',
@@ -145,9 +150,16 @@ describe('Documents', () => {
   })
 
   test('GET /api/docs?prefix=notes lists documents under collection', async () => {
-    upsertDocument('notes/todo', userRecord.id, '{"task":"buy milk"}', 'public', null, 20)
-    upsertDocument('notes/shopping', userRecord.id, '{"items":["bread"]}', 'public', null, 22)
-    upsertDocument('projects/alpha', userRecord.id, '{"name":"alpha"}', 'public', null, 17)
+    await upsertDocument('notes/todo', userRecord.id, '{"task":"buy milk"}', 'public', null, 20)
+    await upsertDocument(
+      'notes/shopping',
+      userRecord.id,
+      '{"items":["bread"]}',
+      'public',
+      null,
+      22,
+    )
+    await upsertDocument('projects/alpha', userRecord.id, '{"name":"alpha"}', 'public', null, 17)
 
     const res = await fetch(`${baseUrl}/api/docs?prefix=notes`, {
       headers: authHeader(adminToken),
@@ -160,7 +172,7 @@ describe('Documents', () => {
   })
 
   test('GET /api/docs/{id} returns public document without auth', async () => {
-    const doc = upsertDocument('public-doc', userRecord.id, '{"x":1}', 'public', null, 6)
+    const doc = await upsertDocument('public-doc', userRecord.id, '{"x":1}', 'public', null, 6)
 
     const res = await fetch(`${baseUrl}/api/docs/${doc.id}`)
     expect(res.status).toBe(200)
@@ -171,14 +183,28 @@ describe('Documents', () => {
   })
 
   test('GET /api/docs/{id} returns 403 for private doc without secret', async () => {
-    const doc = upsertDocument('private-doc', userRecord.id, '{"y":1}', 'private', 'sec123', 6)
+    const doc = await upsertDocument(
+      'private-doc',
+      userRecord.id,
+      '{"y":1}',
+      'private',
+      'sec123',
+      6,
+    )
 
     const res = await fetch(`${baseUrl}/api/docs/${doc.id}`)
     expect(res.status).toBe(403)
   })
 
   test('GET /api/docs/{id} returns private doc with correct secret', async () => {
-    const doc = upsertDocument('private-doc', userRecord.id, '{"z":1}', 'private', 'sec456', 6)
+    const doc = await upsertDocument(
+      'private-doc',
+      userRecord.id,
+      '{"z":1}',
+      'private',
+      'sec456',
+      6,
+    )
 
     const res = await fetch(`${baseUrl}/api/docs/${doc.id}?secret=sec456`)
     expect(res.status).toBe(200)
@@ -187,7 +213,7 @@ describe('Documents', () => {
   })
 
   test('PUT /api/docs/{path} updates document as owner', async () => {
-    upsertDocument('update-doc', userRecord.id, '{"v":1}', 'public', null, 6)
+    await upsertDocument('update-doc', userRecord.id, '{"v":1}', 'public', null, 6)
 
     const res = await fetch(`${baseUrl}/api/docs/update-doc`, {
       method: 'PUT',
@@ -225,7 +251,7 @@ describe('Documents', () => {
   })
 
   test('DELETE /api/docs/{id} deletes document as owner', async () => {
-    const doc = upsertDocument('delete-me', userRecord.id, '{}', 'public', null, 2)
+    const doc = await upsertDocument('delete-me', userRecord.id, '{}', 'public', null, 2)
 
     const res = await fetch(`${baseUrl}/api/docs/${doc.id}`, {
       method: 'DELETE',
@@ -241,8 +267,15 @@ describe('Documents', () => {
   })
 
   test('Document access modes work correctly', async () => {
-    const pubDoc = upsertDocument('am-public', userRecord.id, '{"mode":"pub"}', 'public', null, 12)
-    const prsDoc = upsertDocument(
+    const pubDoc = await upsertDocument(
+      'am-public',
+      userRecord.id,
+      '{"mode":"pub"}',
+      'public',
+      null,
+      12,
+    )
+    const prsDoc = await upsertDocument(
       'am-prs',
       userRecord.id,
       '{"mode":"prs"}',
@@ -250,7 +283,7 @@ describe('Documents', () => {
       'prs-sec',
       12,
     )
-    const privDoc = upsertDocument(
+    const privDoc = await upsertDocument(
       'am-private',
       userRecord.id,
       '{"mode":"priv"}',
@@ -279,6 +312,68 @@ describe('Documents', () => {
     expect(privReadSecret.status).toBe(200)
   })
 
+  test('Tokens from other users cannot access private documents', async () => {
+    const otherUser = await createUser('github-456', 'other@example.com', 'Other User')
+    const otherToken = generateToken()
+    await createApiToken(otherUser.id, 'Other Token', otherToken, 'read_write')
+
+    const otherAdminToken = generateToken()
+    await createApiToken(otherUser.id, 'Other Admin Token', otherAdminToken, 'admin')
+
+    const myPrivateDoc = await upsertDocument(
+      'my-private-doc',
+      userRecord.id,
+      '{"val":42}',
+      'private',
+      'secret-xyz',
+      10,
+    )
+
+    // Other user with read_write token tries to read my private doc -> should be 403
+    const readRes = await fetch(`${baseUrl}/api/docs/${myPrivateDoc.id}`, {
+      headers: authHeader(otherToken),
+    })
+    expect(readRes.status).toBe(403)
+
+    // Other user with admin token tries to read my private doc -> should be 403
+    const adminReadRes = await fetch(`${baseUrl}/api/docs/${myPrivateDoc.id}`, {
+      headers: authHeader(otherAdminToken),
+    })
+    expect(adminReadRes.status).toBe(403)
+  })
+
+  test('Token permissions are strictly enforced for owner documents', async () => {
+    // 1. Read token cannot write
+    const writeRes = await fetch(`${baseUrl}/api/docs/my-doc`, {
+      method: 'PUT',
+      headers: { ...authHeader(readToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { x: 1 } }),
+    })
+    expect(writeRes.status).toBe(403)
+
+    // Create a private doc owned by userRecord.id
+    const doc = await upsertDocument('owner-doc', userRecord.id, '{"val":1}', 'private', null, 9)
+
+    // 2. Write token cannot read
+    const readRes = await fetch(`${baseUrl}/api/docs/${doc.id}`, {
+      headers: authHeader(writeToken),
+    })
+    expect(readRes.status).toBe(403)
+
+    // 3. Write token cannot list
+    const listRes = await fetch(`${baseUrl}/api/docs`, {
+      headers: authHeader(writeToken),
+    })
+    expect(listRes.status).toBe(403)
+
+    // 4. Read token cannot delete
+    const deleteRes = await fetch(`${baseUrl}/api/docs/${doc.id}`, {
+      method: 'DELETE',
+      headers: authHeader(readToken),
+    })
+    expect(deleteRes.status).toBe(403)
+  })
+
   test('Rejects document larger than 1MB', async () => {
     const big = 'x'.repeat(LIMITS.maxDocSize)
 
@@ -299,7 +394,14 @@ describe('Documents', () => {
 
     const docsNeeded = Math.ceil(LIMITS.maxTotalSize / docSize) + 1
     for (let i = 0; i < docsNeeded; i++) {
-      upsertDocument(`fill-${i}`, userRecord.id, JSON.stringify(docBody), 'public', null, docSize)
+      await upsertDocument(
+        `fill-${i}`,
+        userRecord.id,
+        JSON.stringify(docBody),
+        'public',
+        null,
+        docSize,
+      )
     }
 
     const res = await fetch(`${baseUrl}/api/docs/overflow`, {

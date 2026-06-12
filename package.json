@@ -4,7 +4,7 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "NODE_ENV=development bun --hot index.ts & cd frontend && bun run dev",
+    "dev": "NODE_ENV=development bun run --parallel dev:backend dev:frontend",
     "dev:backend": "NODE_ENV=development bun --hot index.ts",
     "dev:frontend": "cd frontend && bun run dev",
     "start": "bun index.ts",
