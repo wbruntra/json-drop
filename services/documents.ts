@@ -5,6 +5,10 @@ import type { Document } from '../kysely-db'
 
 const translator = short.createTranslator()
 
+export function generateDocId(): string {
+  return translator.generate()
+}
+
 export async function upsertDocument(
   path: string,
   userId: number,

@@ -9,7 +9,13 @@ import customLogger from './middleware/customLogger'
 import { handleGitHubAuth, handleGitHubCallback, handleLogout } from './routes/auth'
 import { handleMe } from './routes/me'
 import { handleCreateToken, handleListTokens, handleDeleteToken } from './routes/tokens'
-import { handleUpsertDoc, handleListDocs, handleGetDoc, handleDeleteDoc } from './routes/docs'
+import {
+  handleUpsertDoc,
+  handleListDocs,
+  handleGetDoc,
+  handleDeleteDoc,
+  handleCreateDoc,
+} from './routes/docs'
 import { handleDevLogin, handleDevCreateToken } from './routes/dev'
 
 type Bindings = {
@@ -73,6 +79,7 @@ export function createApp(options: ServerOptions = {}) {
 
   // Docs — wildcard
   app.get('/api/docs/:path{.+}', handleGetDoc)
+  app.post('/api/docs/:path{.+}', handleCreateDoc)
   app.put('/api/docs/:path{.+}', handleUpsertDoc)
   app.delete('/api/docs/:path{.+}', handleDeleteDoc)
 

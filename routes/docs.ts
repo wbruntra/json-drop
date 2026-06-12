@@ -7,6 +7,7 @@ import {
   listDocuments,
   deleteDocument,
   getUserTotalSize,
+  generateDocId,
 } from '../services'
 import type { AuthContext } from '../services/auth'
 import { LIMITS } from '../limits'
@@ -245,6 +246,67 @@ export async function handleGetDoc(c: Context): Promise<Response> {
     created_at: doc.created_at,
     updated_at: doc.updated_at,
   })
+}
+
+export async function handleCreateDoc(c: Context): Promise<Response> {
+  const auth = c.get('auth')
+  if (!auth.user) {
+    return c.json({ error: 'Not authenticated' }, 401)
+  }
+
+  if (auth.tokenPermissions && !['write', 'read_write', 'admin'].includes(auth.tokenPermissions)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const collectionPath = c.req.param('path')!
+  const pathResult = pathSchema.safeParse(collectionPath)
+  if (!pathResult.success) {
+    return c.json({ error: formatZodError(pathResult.error) }, 400)
+  }
+
+  const rawBody = await c.req.json()
+  const parsed = upsertDocSchema.safeParse(rawBody)
+  if (!parsed.success) {
+    return c.json({ error: formatZodError(parsed.error) }, 400)
+  }
+
+  const content = JSON.stringify(parsed.data.content)
+  const size = contentSize(content)
+  if (size > LIMITS.maxDocSize) {
+    return c.json({ error: `Document exceeds max size of ${formatMb(LIMITS.maxDocSize)}` }, 413)
+  }
+
+  const currentTotal = await getUserTotalSize(auth.user.id)
+  if (currentTotal + size > LIMITS.maxTotalSize) {
+    return c.json(
+      {
+        error: `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
+      },
+      413,
+    )
+  }
+
+  const path = `${collectionPath}/${generateDocId()}`
+  const accessMode = parsed.data.access_mode
+  const accessSecret = accessMode !== 'public' ? crypto.randomUUID() : null
+
+  const doc = await upsertDocument(path, auth.user.id, content, accessMode, accessSecret, size)
+
+  return c.json(
+    {
+      id: doc.id,
+      path: doc.path,
+      access_mode: doc.access_mode,
+      access_secret: doc.access_secret,
+      size_bytes: doc.size_bytes,
+      created_at: doc.created_at,
+      updated_at: doc.updated_at,
+      message: accessSecret
+        ? 'Store the access_secret now. It will not be shown again.'
+        : undefined,
+    },
+    201,
+  )
 }
 
 export async function handleDeleteDoc(c: Context): Promise<Response> {

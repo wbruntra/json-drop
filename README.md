@@ -27,6 +27,104 @@ Open `http://localhost:3000` — click "Sign in with GitHub" (dev mode auto-crea
 
 **API tokens** can have different permissions (`read`, `write`, `read_write`, `admin`) and are revocable. The token you get on sign-in has `admin` permissions.
 
+## Usage Guide
+
+json-drop organizes data as **documents** stored at **paths**. A document is any JSON value. Collections are just path prefixes — there is no separate collection type to create or manage. Documents are addressed by their full path, which uses slashes to express hierarchy.
+
+### Paths and Collections
+
+A path like `notes/xK92mP` means: the document `xK92mP` inside the collection `notes`. Deeper nesting works the same way:
+
+```
+notes/xK92mP                       → a note
+notes/xK92mP/comments/yL83nQ       → a comment on that note
+users/alice                         → a singleton document for a known key
+```
+
+### Creating a Document
+
+**Server-generated ID** — `POST /api/docs/:collection` — recommended when adding a new record to a collection and you don't care what the ID is:
+
+```
+POST /api/docs/notes
+→ 201 { path: "notes/xK92mP", ... }
+```
+
+**Known path** — `PUT /api/docs/:path` — use when you want a specific, stable address (user profiles, settings, etc.):
+
+```
+PUT /api/docs/users/alice
+→ 200/201 { path: "users/alice", ... }
+```
+
+### Example: Notes App
+
+Here's a minimal JavaScript client using the fetch API:
+
+```js
+const BASE = 'https://your-jsondrop-server.com'
+const TOKEN = 'your-api-token'
+
+const headers = {
+  Authorization: `Bearer ${TOKEN}`,
+  'Content-Type': 'application/json',
+}
+
+// Create a note (server assigns an ID)
+async function createNote(title, body) {
+  const res = await fetch(`${BASE}/api/docs/notes`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ content: { title, body } }),
+  })
+  const doc = await res.json()
+  console.log('Created:', doc.path) // e.g. "notes/xK92mP"
+  return doc
+}
+
+// List all notes
+async function listNotes() {
+  const res = await fetch(`${BASE}/api/docs?prefix=notes`, { headers })
+  const { docs } = await res.json()
+  return docs // array of { id, path, content, ... }
+}
+
+// Read a specific note by its path
+async function getNote(path) {
+  const res = await fetch(`${BASE}/api/docs/${path}`, { headers })
+  return res.json() // { id, path, content, ... }
+}
+
+// Update a note
+async function updateNote(path, title, body) {
+  const res = await fetch(`${BASE}/api/docs/${path}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ content: { title, body } }),
+  })
+  return res.json()
+}
+
+// Delete a note
+async function deleteNote(path) {
+  await fetch(`${BASE}/api/docs/${path}`, { method: 'DELETE', headers })
+}
+```
+
+### Access Control
+
+By default, documents are `public` — anyone can read them without a token. Set `access_mode` in your request body to control this:
+
+| `access_mode`              | Who can read           | Who can write          |
+| -------------------------- | ---------------------- | ---------------------- |
+| `public` (default)         | Anyone                 | Owner / token          |
+| `public_read_secret_write` | Anyone                 | Owner / token / secret |
+| `private`                  | Owner / token / secret | Owner / token / secret |
+
+When you create a non-public document, the response includes an `access_secret`. Store it — it won't be shown again. Pass it as `?secret=<value>` for reads and writes by non-owners.
+
+---
+
 ## API Reference
 
 All endpoints except sign-in and public reads require an `Authorization` header:
@@ -53,13 +151,13 @@ Authorization: Bearer <your-api-token>
 
 ### Documents
 
-| Method   | Endpoint        | Auth          | Description                        |
-| -------- | --------------- | ------------- | ---------------------------------- |
-| `POST`   | `/api/docs`     | token         | Create a document                  |
-| `GET`    | `/api/docs`     | token         | List your documents                |
-| `GET`    | `/api/docs/:id` | varies        | Read a document (see access modes) |
-| `PUT`    | `/api/docs/:id` | token/secret  | Update a document                  |
-| `DELETE` | `/api/docs/:id` | token (owner) | Delete a document                  |
+| Method   | Endpoint                | Auth          | Description                               |
+| -------- | ----------------------- | ------------- | ----------------------------------------- |
+| `GET`    | `/api/docs`             | token         | List your documents (optional `?prefix=`) |
+| `POST`   | `/api/docs/:collection` | token         | Create document with server-generated ID  |
+| `GET`    | `/api/docs/:path`       | varies        | Read a document (see access modes)        |
+| `PUT`    | `/api/docs/:path`       | token/secret  | Upsert a document at a specific path      |
+| `DELETE` | `/api/docs/:path`       | token (owner) | Delete a document                         |
 
 ## Curl Examples
 
@@ -71,25 +169,27 @@ Replace `<base>` with your server URL and `<token>` with your API token.
 curl <base>/api/me -H "Authorization: Bearer <token>"
 ```
 
-### Create a public document
+### Create a document (server-generated ID)
 
 ```bash
-curl -X POST <base>/api/docs \
+curl -X POST <base>/api/docs/notes \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "config", "content": {"theme": "dark"}, "access_mode": "public"}'
+  -d '{"content": {"title": "My note", "body": "Hello world"}}'
 ```
 
-### Create a private document
+Response includes the generated `path` (e.g. `notes/xK92mP`).
+
+### Upsert a document at a known path
 
 ```bash
-curl -X POST <base>/api/docs \
+curl -X PUT <base>/api/docs/users/alice \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "secrets", "content": {"api_key": "sk-..."}, "access_mode": "private"}'
+  -d '{"content": {"display_name": "Alice"}, "access_mode": "private"}'
 ```
 
-Response includes an `access_secret` — copy it now, it won't be shown again.
+Response includes an `access_secret` when creating a non-public document — copy it now, it won't be shown again.
 
 ### Read a public document (no auth needed)
 
@@ -115,10 +215,16 @@ curl <base>/api/docs/<doc-id> -H "Authorization: Bearer <token>"
 curl <base>/api/docs -H "Authorization: Bearer <token>"
 ```
 
+### List documents in a collection
+
+```bash
+curl "<base>/api/docs?prefix=notes" -H "Authorization: Bearer <token>"
+```
+
 ### Update a document
 
 ```bash
-curl -X PUT <base>/api/docs/<doc-id> \
+curl -X PUT <base>/api/docs/<path> \
   -H "Authorization: Bearer <token>" \
   -H "Content-Type: application/json" \
   -d '{"content": {"updated": true}}'
@@ -127,7 +233,7 @@ curl -X PUT <base>/api/docs/<doc-id> \
 ### Update with secret key
 
 ```bash
-curl -X PUT "<base>/api/docs/<doc-id>?secret=<access-secret>" \
+curl -X PUT "<base>/api/docs/<path>?secret=<access-secret>" \
   -H "Content-Type: application/json" \
   -d '{"content": {"updated": true}}'
 ```
@@ -135,7 +241,7 @@ curl -X PUT "<base>/api/docs/<doc-id>?secret=<access-secret>" \
 ### Delete a document
 
 ```bash
-curl -X DELETE <base>/api/docs/<doc-id> -H "Authorization: Bearer <token>"
+curl -X DELETE <base>/api/docs/<path> -H "Authorization: Bearer <token>"
 ```
 
 ### Create an API token
