@@ -16,9 +16,14 @@ export const pathSchema = z
       'Path segments contain invalid characters. Only alphanumeric, hyphens, and underscores allowed.',
   })
 
+export const createProjectSchema = z.object({
+  name: z.string().min(1).max(100),
+})
+
 export const createTokenSchema = z.object({
   name: z.string().default('Unnamed token'),
   permissions: z.enum(['read', 'write', 'read_write', 'admin']).default('read_write'),
+  project_id: z.string().optional(),
 })
 
 export const upsertDocSchema = z.object({

@@ -30,23 +30,30 @@ A Bun + Hono + Kysely + SQLite backend pattern for API servers.
 ├── kysely-types.ts        # Auto-generated table types (don't edit)
 ├── codegen.ts             # Generates kysely-types.ts from SQLite schema
 ├── migrate.ts             # Runs .sql migration files in order
-├── migrations/            # Ordered .sql migration files
-│   └── 001_initial.sql
+├── migrations/            # Ordered .ts migration files
+│   └── 001_initial.ts
 ├── services/              # Data access layer — Kysely queries only
 │   ├── index.ts           # Barrel export
 │   ├── users.ts           # createUser, getUser, getUserByGithubId
 │   ├── tokens.ts          # createApiToken, listApiTokens, getApiToken, revokeApiToken
 │   ├── documents.ts       # upsertDocument, listDocuments, deleteDocument, etc.
+│   ├── projects.ts        # createProject, listProjects, getProject, deleteProject
 │   └── auth.ts            # extractAuth (bearer token → user + permissions)
 ├── routes/                # HTTP handlers — call services, never DB directly
 │   ├── auth.ts            # OAuth login, callback, logout
 │   ├── me.ts              # GET /api/me
 │   ├── tokens.ts          # CRUD /api/tokens
-│   ├── docs.ts            # CRUD /api/docs
+│   ├── projects.ts        # CRUD /api/projects
+│   ├── docs.ts            # CRUD /api/docs (with project scoping + path addressing)
 │   └── dev.ts             # Dev-only login shortcuts
+├── sdk/                   # Published-style Firebase-style JS client
+│   ├── src/index.ts       # JsonDrop SDK
+│   ├── index.test.ts      # SDK e2e tests
+│   └── README.md
 ├── auth.ts                # JWT session + GitHub OAuth helpers
 ├── limits.ts              # Storage limit constants
-└── api.test.ts            # Integration tests (real server, in-memory DB)
+├── api.test.ts            # Integration tests (real server, in-memory DB)
+└── projects.test.ts       # Projects / path-addressing / anonymous tests
 ```
 
 ## Database Layer
@@ -145,6 +152,7 @@ Extracts user identity from `Authorization: Bearer <token>` header by looking up
 export type AuthContext = {
   user: User | null
   tokenPermissions: string | null // 'read' | 'write' | 'read_write' | 'admin'
+  projectId: string | null // set when the token is project-scoped
 }
 
 export async function extractAuth(req: Request): Promise<AuthContext>
@@ -165,6 +173,30 @@ await createApiToken(userId, name, rawToken, 'admin')
 const token = req.headers.get('Authorization')?.slice(7)
 const apiToken = await getApiToken(token) // direct lookup, no hashing
 ```
+
+### Projects & Scope Resolution
+
+Documents live in one of two scopes:
+
+- **Project scope** — `documents.project_id` is set to a `projects.id`.
+- **Global (owner) scope** — `documents.project_id IS NULL` (the "default" bucket for an owner).
+
+Path uniqueness is enforced by the expression unique index `idx_documents_scope_path ON (IFNULL(project_id, 'u' || user_id), path)`, so the same path can exist in multiple projects (or in a project and the owner's global scope) without collision.
+
+API tokens can be either:
+
+- **Owner tokens** — `api_tokens.project_id IS NULL`; can read/write any of the owner's projects and the global scope.
+- **Project-scoped tokens** — `api_tokens.project_id` is set; can only access that one project.
+
+The route layer's `resolveScope(c, auth)` returns the active `{ projectId, ownerId }` for a request, with precedence:
+
+1. The token's `projectId` (from `auth.projectId`).
+2. `?project=<id>` query parameter, validated against the `projects` table.
+3. Global (the token owner's user id, or `null` for anonymous).
+
+Anonymous clients can read public documents inside a known project by passing `?project=<id>`; secret-keyed writes are unaffected by project scope and are looked up by `(path, access_secret)` alone.
+
+The `sdk/` package is a thin browser/Node client that wraps this whole surface (`db.collection('notes')`, `db.doc('users/alice').set(...)`, etc.).
 
 ## Validation Layer (`schemas.ts`)
 

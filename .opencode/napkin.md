@@ -24,8 +24,12 @@
 
 - Hono `*` wildcard does NOT populate `c.req.param('*')` (returns undefined). Use `:param{.+}` regex pattern for multi-segment catch-all routes instead. `c.req.param('param')` returns the full sub-path.
 - Module-level `new Database(process.env.X)` at import time forces tests into env-var-before-import ordering hacks. Use explicit init instead.
+- SQLite `ON CONFLICT ON CONSTRAINT "name"` is PostgreSQL syntax. For an expression index like `idx_documents_scope_path ON (IFNULL(project_id, 'u' || user_id), path)`, target it with `oc.expression(sql\`IFNULL(project_id, 'u' || user_id), path\`)` — the index columns form a tuple, not a constraint name. (`oc.column`/`oc.columns` don't match expression indexes.)
+- SQLite `PRAGMA table_info` reports FK columns as `notnull=0`, so the codegen conservatively types every FK as NOT NULL. Widen specific FK columns (e.g. `api_tokens.project_id`, `documents.project_id`) to nullable via TypeScript `declare module` augmentation in `kysely-db.ts` rather than editing the generated `kysely-types.ts` (which gets clobbered on every `bun run codegen`).
+- The legacy documents uniqueness `unique(user_id, path)` is wrong once documents can be project-scoped. Don't try to express it as a column-level unique constraint — use the expression unique index `idx_documents_scope_path ON (IFNULL(project_id, 'u' || user_id), path)` from day one (the app is a prototype; no need for a data-migrating 002).
 
 ## Domain Notes
 
 - Access modes: public / public_read_secret_write / private. Secret-based unauthenticated writes go through `handleSecretUpsert` in routes/docs.ts (content-only update; owner/mode/secret unchanged).
 - Security Gap Resolved (2026-06-12): Restricted token checks in `canRead`/`canWrite` inside `routes/docs.ts` to require that the token belongs to the document owner. Added integration tests to verify.
+- Project/Path addressing (2026-06-12): Routes use id (`GET/DELETE /api/docs/:id`) and path (`PUT /api/docs/:path`, `GET/DELETE /api/docs?path=…`) addressing differently. The `:path{.+}` wildcard resolves to a document **id** on GET/DELETE and to a **path** on PUT. Use `?path=…` for new path-addressed GET/DELETE; leave the legacy id routes intact for backward compat. Path addressing is the foundation for the `sdk/` (which uses `db.doc('users/alice')` exclusively).

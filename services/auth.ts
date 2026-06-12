@@ -5,10 +5,11 @@ import type { User } from '../kysely-db'
 export type AuthContext = {
   user: User | null
   tokenPermissions: string | null
+  projectId: string | null
 }
 
 export async function extractAuth(req: Request): Promise<AuthContext> {
-  const ctx: AuthContext = { user: null, tokenPermissions: null }
+  const ctx: AuthContext = { user: null, tokenPermissions: null, projectId: null }
 
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return ctx
@@ -22,5 +23,6 @@ export async function extractAuth(req: Request): Promise<AuthContext> {
 
   ctx.user = user
   ctx.tokenPermissions = apiToken.permissions
+  ctx.projectId = apiToken.project_id
   return ctx
 }

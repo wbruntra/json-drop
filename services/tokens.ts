@@ -6,11 +6,13 @@ export async function createApiToken(
   name: string,
   token: string,
   permissions: string,
+  projectId: string | null = null,
 ): Promise<ApiToken> {
   return getDb()
     .insertInto('api_tokens')
     .values({
       user_id: userId,
+      project_id: projectId,
       name,
       token_hash: token,
       permissions,

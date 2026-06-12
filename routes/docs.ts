@@ -2,14 +2,17 @@ import type { Context } from 'hono'
 import {
   upsertDocument,
   getDocument,
-  getDocumentByPath,
   getDocumentByPathAndSecret,
+  getDocumentByScopeAndPath,
+  deleteDocumentByScopeAndPath,
   listDocuments,
   deleteDocument,
   getUserTotalSize,
   generateDocId,
+  getProject,
 } from '../services'
 import type { AuthContext } from '../services/auth'
+import type { DocScope } from '../services/documents'
 import { LIMITS } from '../limits'
 import { pathSchema, upsertDocSchema, formatZodError } from '../schemas'
 
@@ -57,6 +60,27 @@ function formatMb(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+type ResolvedScope = {
+  projectId: string | null
+  ownerId: number | null
+}
+
+async function resolveScope(c: Context, auth: AuthContext): Promise<ResolvedScope> {
+  // 1) Token-scoped wins.
+  if (auth.projectId) {
+    return { projectId: auth.projectId, ownerId: auth.user?.id ?? null }
+  }
+  // 2) ?project=<id> query
+  const projectQuery = c.req.query('project')
+  if (projectQuery) {
+    const project = await getProject(projectQuery)
+    if (!project) return { projectId: null, ownerId: null }
+    return { projectId: project.id, ownerId: project.user_id }
+  }
+  // 3) global
+  return { projectId: null, ownerId: auth.user?.id ?? null }
+}
+
 async function handleSecretUpsert(
   c: Context,
   auth: AuthContext,
@@ -91,6 +115,7 @@ async function handleSecretUpsert(
     doc.access_mode,
     doc.access_secret,
     size,
+    doc.project_id,
   )
 
   return c.json({
@@ -117,11 +142,19 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
     return c.json({ error: 'Not authenticated' }, 401)
   }
 
+  const scope = await resolveScope(c, auth)
+
   if (
     auth.user &&
     auth.tokenPermissions &&
     !['write', 'read_write', 'admin'].includes(auth.tokenPermissions)
   ) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  // For writes, if a project is in scope, the caller must own it (or the token
+  // must be project-scoped, in which case auth.projectId is already set).
+  if (auth.user && scope.projectId && scope.ownerId !== auth.user.id) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 
@@ -144,7 +177,10 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
 
   const accessMode = parsed.data.access_mode
 
-  const existingDoc = await getDocumentByPath(path, auth.user.id)
+  const existingDoc = await getDocumentByScopeAndPath(
+    { projectId: scope.projectId, userId: scope.ownerId },
+    path,
+  )
   const currentTotal = await getUserTotalSize(auth.user.id)
   const sizeDiff = existingDoc ? size - existingDoc.size_bytes : size
   if (currentTotal + sizeDiff > LIMITS.maxTotalSize) {
@@ -168,7 +204,15 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
     accessSecret = accessMode !== 'public' ? crypto.randomUUID() : null
   }
 
-  const doc = await upsertDocument(path, auth.user.id, content, accessMode, accessSecret, size)
+  const doc = await upsertDocument(
+    path,
+    auth.user.id,
+    content,
+    accessMode,
+    accessSecret,
+    size,
+    scope.projectId,
+  )
 
   return c.json(
     {
@@ -190,17 +234,57 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
 
 export async function handleListDocs(c: Context): Promise<Response> {
   const auth = c.get('auth')
+  const scope = await resolveScope(c, auth)
+  const secret = c.req.query('secret') ?? null
+
+  const pathQuery = c.req.query('path')
+  if (pathQuery) {
+    if (
+      auth.user &&
+      auth.tokenPermissions &&
+      !['read', 'read_write', 'admin'].includes(auth.tokenPermissions)
+    ) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+
+    // For anonymous reads, scope.projectId can be set via ?project= but
+    // scope.ownerId will be null; that is fine — getDocumentByScopeAndPath
+    // will look up any doc with that project_id, and canRead allows public
+    // docs for anyone.
+    const docScope: DocScope = { projectId: scope.projectId, userId: scope.ownerId }
+    const doc = await getDocumentByScopeAndPath(docScope, pathQuery)
+    if (!doc) {
+      return c.json({ error: 'Document not found' }, 404)
+    }
+    if (!canRead(auth, doc, secret)) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+
+    return c.json({
+      id: doc.id,
+      path: doc.path,
+      access_mode: doc.access_mode,
+      content: JSON.parse(doc.content),
+      size_bytes: doc.size_bytes,
+      created_at: doc.created_at,
+      updated_at: doc.updated_at,
+    })
+  }
+
   if (!auth.user) {
     return c.json({ error: 'Not authenticated' }, 401)
   }
-
   if (auth.tokenPermissions && !['read', 'read_write', 'admin'].includes(auth.tokenPermissions)) {
     return c.json({ error: 'Forbidden' }, 403)
   }
 
   const prefix = c.req.query('prefix') || undefined
 
-  const docs = await listDocuments(auth.user.id, prefix)
+  if (scope.projectId && scope.ownerId !== auth.user.id) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const docs = await listDocuments(auth.user.id, { projectId: scope.projectId, prefix })
   const total = await getUserTotalSize(auth.user.id)
 
   return c.json({
@@ -264,6 +348,11 @@ export async function handleCreateDoc(c: Context): Promise<Response> {
     return c.json({ error: formatZodError(pathResult.error) }, 400)
   }
 
+  const scope = await resolveScope(c, auth)
+  if (scope.projectId && scope.ownerId !== auth.user.id) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
   const rawBody = await c.req.json()
   const parsed = upsertDocSchema.safeParse(rawBody)
   if (!parsed.success) {
@@ -290,7 +379,15 @@ export async function handleCreateDoc(c: Context): Promise<Response> {
   const accessMode = parsed.data.access_mode
   const accessSecret = accessMode !== 'public' ? crypto.randomUUID() : null
 
-  const doc = await upsertDocument(path, auth.user.id, content, accessMode, accessSecret, size)
+  const doc = await upsertDocument(
+    path,
+    auth.user.id,
+    content,
+    accessMode,
+    accessSecret,
+    size,
+    scope.projectId,
+  )
 
   return c.json(
     {
@@ -333,6 +430,37 @@ export async function handleDeleteDoc(c: Context): Promise<Response> {
   const deleted = await deleteDocument(id, auth.user.id)
   if (!deleted) {
     return c.json({ error: 'Delete failed' }, 500)
+  }
+
+  return c.json({ deleted: true })
+}
+
+export async function handleDeleteByPath(c: Context): Promise<Response> {
+  const auth = c.get('auth')
+  if (!auth.user) {
+    return c.json({ error: 'Not authenticated' }, 401)
+  }
+
+  if (auth.tokenPermissions && !['write', 'read_write', 'admin'].includes(auth.tokenPermissions)) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const path = c.req.query('path')
+  if (!path) {
+    return c.json({ error: 'Missing ?path= query' }, 400)
+  }
+
+  const scope = await resolveScope(c, auth)
+  if (scope.projectId && scope.ownerId !== auth.user.id) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  const deleted = await deleteDocumentByScopeAndPath(
+    { projectId: scope.projectId, userId: scope.ownerId },
+    path,
+  )
+  if (!deleted) {
+    return c.json({ error: 'Document not found' }, 404)
   }
 
   return c.json({ deleted: true })

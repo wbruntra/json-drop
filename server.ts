@@ -9,12 +9,14 @@ import customLogger from './middleware/customLogger'
 import { handleGitHubAuth, handleGitHubCallback, handleLogout } from './routes/auth'
 import { handleMe } from './routes/me'
 import { handleCreateToken, handleListTokens, handleDeleteToken } from './routes/tokens'
+import { handleCreateProject, handleListProjects, handleDeleteProject } from './routes/projects'
 import {
   handleUpsertDoc,
   handleListDocs,
   handleGetDoc,
   handleDeleteDoc,
   handleCreateDoc,
+  handleDeleteByPath,
 } from './routes/docs'
 import { handleDevLogin, handleDevCreateToken } from './routes/dev'
 
@@ -69,6 +71,11 @@ export function createApp(options: ServerOptions = {}) {
   // Me
   app.get('/api/me', handleMe)
 
+  // Projects
+  app.post('/api/projects', handleCreateProject)
+  app.get('/api/projects', handleListProjects)
+  app.delete('/api/projects/:id', handleDeleteProject)
+
   // Tokens
   app.post('/api/tokens', handleCreateToken)
   app.get('/api/tokens', handleListTokens)
@@ -76,6 +83,7 @@ export function createApp(options: ServerOptions = {}) {
 
   // Docs — collection
   app.get('/api/docs', handleListDocs)
+  app.delete('/api/docs', handleDeleteByPath)
 
   // Docs — wildcard
   app.get('/api/docs/:path{.+}', handleGetDoc)

@@ -6,6 +6,18 @@ import type { DatabaseSchema } from './kysely-types'
 
 export type { DatabaseSchema } from './kysely-types'
 
+// SQLite's PRAGMA table_info reports FK columns as notnull=0, but the codegen
+// conservatively treats every FK as NOT NULL. Widen these to nullable so
+// services can read/write documents and tokens that aren't scoped to a project.
+declare module './kysely-types' {
+  interface DocumentsTable {
+    project_id: string | null
+  }
+  interface ApiTokensTable {
+    project_id: string | null
+  }
+}
+
 export type User = {
   id: number
   github_id: string
@@ -14,9 +26,17 @@ export type User = {
   created_at: string
 }
 
+export type Project = {
+  id: string
+  user_id: number
+  name: string
+  created_at: string
+}
+
 export type ApiToken = {
   id: number
   user_id: number
+  project_id: string | null
   name: string
   token_hash: string
   permissions: string
@@ -28,6 +48,7 @@ export type Document = {
   id: string
   path: string
   user_id: number
+  project_id: string | null
   content: string
   access_mode: string
   access_secret: string | null

@@ -1,6 +1,6 @@
 # json-drop
 
-A simple backend for the backendless. Store arbitrary JSON documents with flexible access control. Sign in with GitHub, get an API token, and start storing data.
+A simple backend for the backendless. Store arbitrary JSON documents with flexible access control. Sign in with GitHub, get an API token, and start storing data. Frontend apps can use the **JavaScript SDK** to read and write documents scoped to a **project** — no backend required.
 
 ## Quick Start
 
@@ -29,7 +29,7 @@ Open `http://localhost:3000` — click "Sign in with GitHub" (dev mode auto-crea
 
 ## Usage Guide
 
-json-drop organizes data as **documents** stored at **paths**. A document is any JSON value. Collections are just path prefixes — there is no separate collection type to create or manage. Documents are addressed by their full path, which uses slashes to express hierarchy.
+json-drop organizes data as **documents** stored at **paths** within **projects**. A project is a named container that groups documents under one owner; tokens can be scoped to a single project. A document is any JSON value, and collections are just path prefixes — there is no separate collection type to create or manage. Documents are addressed by their full path, which uses slashes to express hierarchy.
 
 ### Paths and Collections
 
@@ -59,7 +59,7 @@ PUT /api/docs/users/alice
 
 ### Example: Notes App
 
-Here's a minimal JavaScript client using the fetch API:
+For a real app, use the [JavaScript SDK](#javascript-sdk) — it handles auth headers, JSON encoding, and error mapping for you. Below is the equivalent raw `fetch` version:
 
 ```js
 const BASE = 'https://your-jsondrop-server.com'
@@ -123,6 +123,61 @@ By default, documents are `public` — anyone can read them without a token. Set
 
 When you create a non-public document, the response includes an `access_secret`. Store it — it won't be shown again. Pass it as `?secret=<value>` for reads and writes by non-owners.
 
+### Projects
+
+Documents live inside a **project**. The default scope is the implicit "global" project (i.e. the owner themselves). Create real projects to share scopes between apps, isolate data per environment, or hand out scoped tokens:
+
+```bash
+curl -X POST <base>/api/projects \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "My App"}'
+# → 201 { "id": "proj_abc", "name": "My App", ... }
+```
+
+Mint a project-scoped token to give a frontend or third party read/write access to just one project:
+
+```bash
+curl -X POST <base>/api/tokens \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "frontend", "permissions": "read_write", "project_id": "proj_abc"}'
+```
+
+Anonymous clients can also read public documents inside a project by adding `?project=<id>` to the request — useful for static sites that need a public read-only feed.
+
+---
+
+## JavaScript SDK
+
+For frontend apps, install the official SDK:
+
+```bash
+bun add json-drop     # or: npm install json-drop
+```
+
+```ts
+import { JsonDrop } from 'json-drop'
+
+const db = new JsonDrop({
+  baseUrl: 'https://your-jsondrop-server.com',
+  token: 'jd_…', // owner or project-scoped token
+})
+
+// Path-addressed documents
+const alice = db.doc('users/alice')
+await alice.set({ name: 'Alice' })
+const got = await alice.get()
+await alice.delete()
+
+// Collections (server-generated IDs)
+const notes = db.collection('notes')
+const note = await notes.add({ title: 'Hello' })
+const { docs } = await notes.list()
+```
+
+The SDK is the recommended way to talk to a json-drop server from a frontend. See [`sdk/README.md`](./sdk/README.md) for the full reference, including anonymous public reads and secret-keyed writes.
+
 ---
 
 ## API Reference
@@ -141,23 +196,34 @@ Authorization: Bearer <your-api-token>
 | `GET`  | `/gh/callback`     | —     | GitHub OAuth callback                        |
 | `GET`  | `/api/me`          | token | Get current user info                        |
 
+### Projects
+
+| Method   | Endpoint            | Auth  | Description                 |
+| -------- | ------------------- | ----- | --------------------------- |
+| `POST`   | `/api/projects`     | token | Create a new project        |
+| `GET`    | `/api/projects`     | token | List your projects          |
+| `DELETE` | `/api/projects/:id` | admin | Delete a project (cascades) |
+
 ### API Tokens
 
-| Method   | Endpoint          | Auth  | Description        |
-| -------- | ----------------- | ----- | ------------------ |
-| `POST`   | `/api/tokens`     | admin | Create a new token |
-| `GET`    | `/api/tokens`     | token | List your tokens   |
-| `DELETE` | `/api/tokens/:id` | admin | Revoke a token     |
+| Method   | Endpoint          | Auth  | Description                                        |
+| -------- | ----------------- | ----- | -------------------------------------------------- |
+| `POST`   | `/api/tokens`     | admin | Create a new token (optional `project_id` in body) |
+| `GET`    | `/api/tokens`     | token | List your tokens                                   |
+| `DELETE` | `/api/tokens/:id` | admin | Revoke a token                                     |
 
 ### Documents
 
-| Method   | Endpoint                | Auth          | Description                               |
-| -------- | ----------------------- | ------------- | ----------------------------------------- |
-| `GET`    | `/api/docs`             | token         | List your documents (optional `?prefix=`) |
-| `POST`   | `/api/docs/:collection` | token         | Create document with server-generated ID  |
-| `GET`    | `/api/docs/:path`       | varies        | Read a document (see access modes)        |
-| `PUT`    | `/api/docs/:path`       | token/secret  | Upsert a document at a specific path      |
-| `DELETE` | `/api/docs/:path`       | token (owner) | Delete a document                         |
+| Method   | Endpoint                | Auth                        | Description                                                 |
+| -------- | ----------------------- | --------------------------- | ----------------------------------------------------------- |
+| `GET`    | `/api/docs`             | token (or anon `?project=`) | List scoped docs, or read a single doc via `?path=…`        |
+| `POST`   | `/api/docs/:collection` | token                       | Create document with server-generated ID in a project scope |
+| `GET`    | `/api/docs/:path`       | varies                      | Read a document by **id** (legacy)                          |
+| `PUT`    | `/api/docs/:path`       | token / `?secret=…`         | Upsert a document at a specific path                        |
+| `DELETE` | `/api/docs/:path`       | token (owner)               | Delete a document by **id** (legacy)                        |
+| `DELETE` | `/api/docs?path=…`      | token (owner)               | Delete a document by **path** within the project scope      |
+
+`?project=<id>` and `?secret=<access-secret>` can be added to any document request to scope it. A `project_id` on the bearer token takes precedence over `?project=`.
 
 ## Curl Examples
 
@@ -253,11 +319,46 @@ curl -X POST <base>/api/tokens \
   -d '{"name": "readonly-token", "permissions": "read"}'
 ```
 
+### Create a project and mint a project-scoped token
+
+```bash
+# Create the project
+curl -X POST <base>/api/projects \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "My App"}'
+# → { "id": "proj_abc", "name": "My App", ... }
+
+# Mint a project-scoped token (frontend uses this; cannot read other projects)
+curl -X POST <base>/api/tokens \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "frontend", "permissions": "read_write", "project_id": "proj_abc"}'
+```
+
+### Read a document by path
+
+```bash
+# With owner or project-scoped token
+curl "<base>/api/docs?path=users/alice" -H "Authorization: Bearer <token>"
+
+# Anonymously for a public doc in a known project
+curl "<base>/api/docs?path=landing&project=proj_abc"
+```
+
+### Delete a document by path
+
+```bash
+curl -X DELETE "<base>/api/docs?path=users/alice" -H "Authorization: Bearer <token>"
+```
+
+````
+
 ### Revoke a token
 
 ```bash
 curl -X DELETE <base>/api/tokens/<token-id> -H "Authorization: Bearer <token>"
-```
+````
 
 ## Frontend
 

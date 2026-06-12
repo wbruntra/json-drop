@@ -1,6 +1,6 @@
 import type { Context } from 'hono'
 import { generateToken } from '../middleware'
-import { createApiToken, listApiTokens, revokeApiToken } from '../services'
+import { createApiToken, listApiTokens, revokeApiToken, getProject } from '../services'
 import { createTokenSchema, formatZodError } from '../schemas'
 
 export async function handleCreateToken(c: Context): Promise<Response> {
@@ -15,15 +15,34 @@ export async function handleCreateToken(c: Context): Promise<Response> {
     return c.json({ error: formatZodError(parsed.error) }, 400)
   }
 
+  let projectId: string | null = null
+  if (parsed.data.project_id) {
+    const project = await getProject(parsed.data.project_id)
+    if (!project) {
+      return c.json({ error: 'Project not found' }, 404)
+    }
+    if (project.user_id !== auth.user.id) {
+      return c.json({ error: 'Forbidden' }, 403)
+    }
+    projectId = project.id
+  }
+
   const rawToken = generateToken()
 
-  await createApiToken(auth.user.id, parsed.data.name, rawToken, parsed.data.permissions)
+  await createApiToken(
+    auth.user.id,
+    parsed.data.name,
+    rawToken,
+    parsed.data.permissions,
+    projectId,
+  )
 
   return c.json(
     {
       token: rawToken,
       name: parsed.data.name,
       permissions: parsed.data.permissions,
+      project_id: projectId,
       message: 'Token created successfully',
     },
     201,
@@ -44,6 +63,7 @@ export async function handleListTokens(c: Context): Promise<Response> {
       name: t.name,
       token: t.token_hash,
       permissions: t.permissions,
+      project_id: t.project_id,
       created_at: t.created_at,
     })),
   )
