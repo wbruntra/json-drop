@@ -1,10 +1,15 @@
 import { initDatabase } from './database'
 import { createServer } from './server'
-import homepage from './frontend/index.html'
+import type { ServerOptions } from './server'
 
 const isDev = process.env.NODE_ENV === 'development'
 
 await initDatabase(process.env.DATABASE_URL || 'db.sqlite')
+
+let homepage: ServerOptions['homepage']
+if (!isDev) {
+  homepage = (await import('./frontend/index.html')).default
+}
 
 const server = createServer({
   port: Number(process.env.PORT) || 3000,

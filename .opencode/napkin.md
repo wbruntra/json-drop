@@ -2,14 +2,16 @@
 
 ## Corrections
 
-| Date       | Source | What Went Wrong                                          | What To Do Instead                                                                        |
-| ---------- | ------ | -------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| 2026-06-11 | user   | JS code examples showed literal `\${token}` string in UI | Interpolated actual token value using `${token}` at render time, similar to curl examples |
+| Date       | Source | What Went Wrong                                          | What To Do Instead                                                                                                                                                 |
+| ---------- | ------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-06-11 | user   | JS code examples showed literal `\${token}` string in UI | Interpolated actual token value using `${token}` at render time, similar to curl examples                                                                          |
+| 2026-06-12 | agent  | Old frontend used broken POST /api/docs and named fields | Updated frontend to support new design: PUT /api/docs/{path} (create/update), GET/DELETE /api/docs/{id}, sidebar collections grouping, and updated Curl API guide. |
+| 2026-06-12 | agent  | Vite build failed due to --outdir option in package.json | Fixed --outdir to --outDir in package.json to match Vite CLI expectations.                                                                                         |
 
 ## User Preferences
 
 - Prefers high-end developer-focused dark theme styling with zinc/indigo accents, smooth transitions, custom scrollbars, and modern typography (Plus Jakarta Sans, JetBrains Mono).
-- Dashboard sections structured into a clear two-column layout on desktop to separate documents, credentials, and API docs.
+- Dashboard sections structured into full-width rows on desktop to accommodate the multi-pane collections view.
 
 ## Patterns That Work
 

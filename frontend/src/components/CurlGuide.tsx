@@ -119,36 +119,35 @@ await axios.delete('${baseUrl}/api/tokens/123', {
             )}
           </div>
 
-          <h4>Documents — Create</h4>
+          <h4>Documents — Create / Update</h4>
           <div class="curl-block">
-            <span class="curl-label">Create a document:</span>
+            <span class="curl-label">Create or Update a document (by path):</span>
             {lang === 'curl' ? (
               <pre>
-                <code>{`# public
-curl -X POST ${baseUrl}/api/docs \\
+                <code>{`# public (create/update a document at path "config")
+curl -X PUT ${baseUrl}/api/docs/config \\
   -H "Authorization: Bearer ${token}" \\
   -H "Content-Type: application/json" \\
-  -d '{"name":"config","content":{"theme":"dark"},"access_mode":"public"}'
+  -d '{"content":{"theme":"dark"},"access_mode":"public"}'
 
-# private (returns access_secret)
-curl -X POST ${baseUrl}/api/docs \\
+# private (create/update a document at path "notes/todo")
+curl -X PUT ${baseUrl}/api/docs/notes/todo \\
   -H "Authorization: Bearer ${token}" \\
   -H "Content-Type: application/json" \\
-  -d '{"name":"secrets","content":{"key":"val"},"access_mode":"private"}'`}</code>
+  -d '{"content":{"task":"buy milk"},"access_mode":"private"}'`}</code>
               </pre>
             ) : (
               <pre>
-                <code>{`const { data } = await axios.post(
-  '${baseUrl}/api/docs',
+                <code>{`const { data } = await axios.put(
+  '${baseUrl}/api/docs/notes/todo',
   {
-    name: 'config',
-    content: { theme: 'dark' },
-    access_mode: 'public'
+    content: { task: 'buy milk' },
+    access_mode: 'private'
   },
   { headers: { Authorization: \`Bearer ${token}\` } }
 )
 const { id, access_secret } = data
-// save access_secret — won't be shown again`}</code>
+// save access_secret — won't be shown again if newly created`}</code>
               </pre>
             )}
             <span class="curl-note">
@@ -157,9 +156,31 @@ const { id, access_secret } = data
             </span>
           </div>
 
+          <div class="curl-block">
+            <span class="curl-label">Update with secret (no owner authentication needed):</span>
+            {lang === 'curl' ? (
+              <pre>
+                <code>{`curl -X PUT '${baseUrl}/api/docs/notes/todo?secret=${secret}' \\
+  -H "Content-Type: application/json" \\
+  -d '{"content":{"task":"buy milk and bread"},"access_mode":"private"}'`}</code>
+              </pre>
+            ) : (
+              <pre>
+                <code>{`const { data } = await axios.put(
+  '${baseUrl}/api/docs/notes/todo',
+  {
+    content: { task: 'buy milk and bread' },
+    access_mode: 'private'
+  },
+  { params: { secret: '${secret}' } }
+)`}</code>
+              </pre>
+            )}
+          </div>
+
           <h4>Documents — Read</h4>
           <div class="curl-block">
-            <span class="curl-label">Read a document:</span>
+            <span class="curl-label">Read a document (by ID):</span>
             {lang === 'curl' ? (
               <pre>
                 <code>{`# public (no auth)
@@ -170,10 +191,6 @@ curl '${baseUrl}/api/docs/${docId}?secret=${secret}'
 
 # as owner
 curl ${baseUrl}/api/docs/${docId} \\
-  -H "Authorization: Bearer ${token}"
-
-# list all yours
-curl ${baseUrl}/api/docs \\
   -H "Authorization: Bearer ${token}"`}</code>
               </pre>
             ) : (
@@ -189,47 +206,35 @@ const { data } = await axios.get('${baseUrl}/api/docs/${docId}', {
 // as owner
 const { data } = await axios.get('${baseUrl}/api/docs/${docId}', {
   headers: { Authorization: \`Bearer ${token}\` }
-})
-
-// list all yours (includes storage info)
-const { data: { docs, storage } } = await axios.get('${baseUrl}/api/docs', {
-  headers: { Authorization: \`Bearer ${token}\` }
 })`}</code>
               </pre>
             )}
           </div>
 
-          <h4>Documents — Update</h4>
           <div class="curl-block">
-            <span class="curl-label">Update a document:</span>
+            <span class="curl-label">List all your documents (supports path filtering):</span>
             {lang === 'curl' ? (
               <pre>
-                <code>{`# as owner
-curl -X PUT ${baseUrl}/api/docs/${docId} \\
-  -H "Authorization: Bearer ${token}" \\
-  -H "Content-Type: application/json" \\
-  -d '{"name":"new-name","content":{"updated":true}}'
+                <code>{`# list all yours
+curl ${baseUrl}/api/docs \\
+  -H "Authorization: Bearer ${token}"
 
-# with secret (no auth needed)
-curl -X PUT '${baseUrl}/api/docs/${docId}?secret=${secret}' \\
-  -H "Content-Type: application/json" \\
-  -d '{"content":{"updated":true}}'`}</code>
+# list only yours under "notes" collection
+curl '${baseUrl}/api/docs?prefix=notes' \\
+  -H "Authorization: Bearer ${token}"`}</code>
               </pre>
             ) : (
               <pre>
-                <code>{`// as owner
-const { data } = await axios.put(
-  '${baseUrl}/api/docs/${docId}',
-  { name: 'new-name', content: { updated: true } },
-  { headers: { Authorization: \`Bearer ${token}\` } }
-)
+                <code>{`// list all (includes storage info)
+const { data: { docs, storage } } = await axios.get('${baseUrl}/api/docs', {
+  headers: { Authorization: \`Bearer ${token}\` }
+})
 
-// with secret
-const { data } = await axios.put(
-  '${baseUrl}/api/docs/${docId}',
-  { content: { updated: true } },
-  { params: { secret: '${secret}' } }
-)`}</code>
+// list only under "notes" prefix
+const { data: { docs } } = await axios.get('${baseUrl}/api/docs', {
+  params: { prefix: 'notes' },
+  headers: { Authorization: \`Bearer ${token}\` }
+})`}</code>
               </pre>
             )}
           </div>

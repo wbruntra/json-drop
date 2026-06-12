@@ -4,7 +4,9 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "NODE_ENV=development bun --hot index.ts",
+    "dev": "NODE_ENV=development bun --hot index.ts & cd frontend && bun run dev",
+    "dev:backend": "NODE_ENV=development bun --hot index.ts",
+    "dev:frontend": "cd frontend && bun run dev",
     "start": "bun index.ts",
     "migrate": "bun migrate.ts",
     "codegen": "bun run codegen.ts",
