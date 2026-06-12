@@ -1,14 +1,27 @@
 import { Database } from 'bun:sqlite'
 import short from 'short-uuid'
+import { runMigrations } from './migrate'
 
-const DB_PATH = process.env.DATABASE_URL || 'db.sqlite'
-
-const db = new Database(DB_PATH, { create: true })
-
-db.run('PRAGMA journal_mode = WAL')
-db.run('PRAGMA foreign_keys = ON')
+let db: Database | null = null
 
 const translator = short.createTranslator()
+
+export async function initDatabase(
+  path: string,
+  options: { silent?: boolean } = {},
+): Promise<Database> {
+  db?.close()
+  db = new Database(path, { create: true })
+  await runMigrations(db, { silent: options.silent })
+  return db
+}
+
+export function getDb(): Database {
+  if (!db) {
+    throw new Error('Database not initialized. Call initDatabase() before using the database.')
+  }
+  return db
+}
 
 export type User = {
   id: number
@@ -45,7 +58,7 @@ export function createUser(
   email: string | null,
   displayName: string | null,
 ): User {
-  const stmt = db.prepare(
+  const stmt = getDb().prepare(
     `INSERT INTO users (github_id, email, display_name)
      VALUES (?, ?, ?)
      ON CONFLICT(github_id) DO UPDATE SET email = excluded.email, display_name = excluded.display_name
@@ -55,11 +68,11 @@ export function createUser(
 }
 
 export function getUser(id: number): User | null {
-  return db.prepare('SELECT * FROM users WHERE id = ?').get(id) as User | null
+  return getDb().prepare('SELECT * FROM users WHERE id = ?').get(id) as User | null
 }
 
 export function getUserByGithubId(githubId: string): User | null {
-  return db.prepare('SELECT * FROM users WHERE github_id = ?').get(githubId) as User | null
+  return getDb().prepare('SELECT * FROM users WHERE github_id = ?').get(githubId) as User | null
 }
 
 export function createApiToken(
@@ -68,26 +81,26 @@ export function createApiToken(
   tokenHash: string,
   permissions: string,
 ): ApiToken {
-  const stmt = db.prepare(
+  const stmt = getDb().prepare(
     `INSERT INTO api_tokens (user_id, name, token_hash, permissions) VALUES (?, ?, ?, ?) RETURNING *`,
   )
   return stmt.get(userId, name, tokenHash, permissions) as ApiToken
 }
 
 export function listApiTokens(userId: number): ApiToken[] {
-  return db
+  return getDb()
     .prepare('SELECT * FROM api_tokens WHERE user_id = ? AND revoked_at IS NULL')
     .all(userId) as ApiToken[]
 }
 
 export function getApiTokenByHash(tokenHash: string): ApiToken | null {
-  return db
+  return getDb()
     .prepare('SELECT * FROM api_tokens WHERE token_hash = ? AND revoked_at IS NULL')
     .get(tokenHash) as ApiToken | null
 }
 
 export function revokeApiToken(id: number, userId: number): boolean {
-  const result = db
+  const result = getDb()
     .prepare('UPDATE api_tokens SET revoked_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?')
     .run(id, userId)
   return result.changes > 0
@@ -101,13 +114,13 @@ export function upsertDocument(
   accessSecret: string | null,
   sizeBytes: number,
 ): Document {
-  const existing = db
+  const existing = getDb()
     .prepare('SELECT id FROM documents WHERE user_id = ? AND path = ?')
     .get(userId, path) as { id: string } | null
 
   const id = existing?.id || translator.generate()
 
-  const stmt = db.prepare(
+  const stmt = getDb().prepare(
     `INSERT INTO documents (id, path, user_id, content, access_mode, access_secret, size_bytes)
      VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, path) DO UPDATE SET
@@ -122,11 +135,17 @@ export function upsertDocument(
 }
 
 export function getDocument(id: string): Document | null {
-  return db.prepare('SELECT * FROM documents WHERE id = ?').get(id) as Document | null
+  return getDb().prepare('SELECT * FROM documents WHERE id = ?').get(id) as Document | null
+}
+
+export function getDocumentByPathAndSecret(path: string, secret: string): Document | null {
+  return getDb()
+    .prepare('SELECT * FROM documents WHERE path = ? AND access_secret = ?')
+    .get(path, secret) as Document | null
 }
 
 export function getDocumentByPath(path: string, userId: number): Document | null {
-  return db
+  return getDb()
     .prepare('SELECT * FROM documents WHERE path = ? AND user_id = ?')
     .get(path, userId) as Document | null
 }
@@ -134,29 +153,25 @@ export function getDocumentByPath(path: string, userId: number): Document | null
 export function listDocuments(userId: number, prefix?: string): Document[] {
   if (prefix) {
     const prefixPattern = prefix.endsWith('/') ? `${prefix}%` : `${prefix}/%`
-    return db
+    return getDb()
       .prepare('SELECT * FROM documents WHERE user_id = ? AND path LIKE ? ORDER BY path ASC')
       .all(userId, prefixPattern) as Document[]
   }
-  return db
+  return getDb()
     .prepare('SELECT * FROM documents WHERE user_id = ? ORDER BY path ASC')
     .all(userId) as Document[]
 }
 
 export function getUserTotalSize(userId: number): number {
-  const result = db
+  const result = getDb()
     .prepare('SELECT COALESCE(SUM(size_bytes), 0) as total FROM documents WHERE user_id = ?')
     .get(userId) as { total: number }
   return result.total
 }
 
 export function deleteDocument(id: string, userId: number): boolean {
-  const result = db.prepare('DELETE FROM documents WHERE id = ? AND user_id = ?').run(id, userId)
+  const result = getDb()
+    .prepare('DELETE FROM documents WHERE id = ? AND user_id = ?')
+    .run(id, userId)
   return result.changes > 0
 }
-
-export function getDb(): Database {
-  return db
-}
-
-export default db

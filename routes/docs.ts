@@ -3,6 +3,7 @@ import {
   upsertDocument,
   getDocument,
   getDocumentByPath,
+  getDocumentByPathAndSecret,
   listDocuments,
   deleteDocument,
   getUserTotalSize,
@@ -72,27 +73,70 @@ function formatMb(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// Unauthenticated write using an access secret. Only updates content on an
+// existing document — the owner, access mode, and secret stay unchanged.
+function handleSecretUpsert(
+  auth: AuthContext,
+  path: string,
+  secret: string,
+  content: string,
+  size: number,
+): Response {
+  const doc = getDocumentByPathAndSecret(path, secret)
+  if (!doc) {
+    return jsonResponse({ error: 'Document not found' }, 404)
+  }
+
+  if (!canWrite(auth, doc, secret)) {
+    return jsonResponse({ error: 'Forbidden' }, 403)
+  }
+
+  const currentTotal = getUserTotalSize(doc.user_id)
+  if (currentTotal - doc.size_bytes + size > LIMITS.maxTotalSize) {
+    return jsonResponse(
+      {
+        error: `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
+      },
+      413,
+    )
+  }
+
+  const updated = upsertDocument(
+    doc.path,
+    doc.user_id,
+    content,
+    doc.access_mode,
+    doc.access_secret,
+    size,
+  )
+
+  return jsonResponse({
+    id: updated.id,
+    path: updated.path,
+    access_mode: updated.access_mode,
+    size_bytes: updated.size_bytes,
+    created_at: updated.created_at,
+    updated_at: updated.updated_at,
+  })
+}
+
 export async function handleUpsertDoc(
   req: Request,
   auth: AuthContext,
   path: string,
 ): Promise<Response> {
-  if (!auth.user) {
-    return jsonResponse({ error: 'Not authenticated' }, 401)
-  }
-
   const pathCheck = validatePath(path)
   if (!pathCheck.valid) {
     return jsonResponse({ error: pathCheck.error }, 400)
   }
 
+  const secret = new URL(req.url).searchParams.get('secret')
+  if (!auth.user && !secret) {
+    return jsonResponse({ error: 'Not authenticated' }, 401)
+  }
+
   const body = (await req.json()) as { content?: unknown; access_mode?: string }
   const content = body.content !== undefined ? JSON.stringify(body.content) : '{}'
-  const accessMode = body.access_mode || 'public'
-
-  if (!['public', 'public_read_secret_write', 'private'].includes(accessMode)) {
-    return jsonResponse({ error: 'Invalid access_mode' }, 400)
-  }
 
   const size = contentSize(content)
   if (size > LIMITS.maxDocSize) {
@@ -102,6 +146,16 @@ export async function handleUpsertDoc(
       },
       413,
     )
+  }
+
+  if (!auth.user) {
+    return handleSecretUpsert(auth, path, secret!, content, size)
+  }
+
+  const accessMode = body.access_mode || 'public'
+
+  if (!['public', 'public_read_secret_write', 'private'].includes(accessMode)) {
+    return jsonResponse({ error: 'Invalid access_mode' }, 400)
   }
 
   const existingDoc = getDocumentByPath(path, auth.user.id)

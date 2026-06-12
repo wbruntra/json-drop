@@ -2,7 +2,12 @@ import { Database } from 'bun:sqlite'
 import { readdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export async function runMigrations(db: Database, migrationsDir?: string): Promise<void> {
+export async function runMigrations(
+  db: Database,
+  options: { dir?: string; silent?: boolean } = {},
+): Promise<void> {
+  const log = options.silent ? () => {} : console.log
+
   db.run('PRAGMA journal_mode = WAL')
   db.run('PRAGMA foreign_keys = ON')
 
@@ -13,7 +18,7 @@ export async function runMigrations(db: Database, migrationsDir?: string): Promi
     )
   `)
 
-  const dir = migrationsDir || join(import.meta.dir, 'migrations')
+  const dir = options.dir || join(import.meta.dir, 'migrations')
   const files = await readdir(dir)
   const sqlFiles = files.filter((f) => f.endsWith('.sql')).sort()
 
@@ -23,11 +28,11 @@ export async function runMigrations(db: Database, migrationsDir?: string): Promi
 
   for (const file of sqlFiles) {
     if (applied.has(file)) {
-      console.log(`  Skipping ${file} (already applied)`)
+      log(`  Skipping ${file} (already applied)`)
       continue
     }
 
-    console.log(`  Applying ${file}...`)
+    log(`  Applying ${file}...`)
     const sql = await readFile(join(dir, file), 'utf-8')
 
     db.transaction(() => {
@@ -35,13 +40,14 @@ export async function runMigrations(db: Database, migrationsDir?: string): Promi
       db.prepare('INSERT INTO _migrations (name) VALUES (?)').run(file)
     })()
 
-    console.log(`  ✓ Applied ${file}`)
+    log(`  ✓ Applied ${file}`)
   }
 }
 
 if (import.meta.main) {
-  const db = new Database('db.sqlite', { create: true })
-  console.log('Running migrations...')
+  const dbPath = process.env.DATABASE_URL || 'db.sqlite'
+  const db = new Database(dbPath, { create: true })
+  console.log(`Running migrations on ${dbPath}...`)
   await runMigrations(db)
   console.log('Migrations complete.\n')
   db.close()
