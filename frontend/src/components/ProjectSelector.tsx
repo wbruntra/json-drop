@@ -105,7 +105,7 @@ export function ProjectSelector({ projectId, onChange }: Props) {
             <optgroup label="Your projects">
               {projects.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name}
+                  {p.name} ({p.id})
                 </option>
               ))}
             </optgroup>
@@ -129,6 +129,60 @@ export function ProjectSelector({ projectId, onChange }: Props) {
           </button>
         )}
       </div>
+
+      {!isCreating && projectId && (
+        <div
+          class="project-id-display"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.35rem',
+            fontSize: '0.75rem',
+            fontFamily: 'var(--font-mono)',
+            color: 'var(--text-muted)',
+            marginTop: '0.15rem',
+          }}
+        >
+          <span>
+            ID:{' '}
+            <code
+              style={{
+                color: 'var(--accent)',
+                background: 'var(--accent-light)',
+                padding: '0.05rem 0.25rem',
+                borderRadius: '4px',
+                border: '1px solid rgba(99, 102, 241, 0.15)',
+              }}
+            >
+              {projectId}
+            </code>
+          </span>
+          <button
+            onClick={() => navigator.clipboard.writeText(projectId)}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--accent)',
+              cursor: 'pointer',
+              padding: '0',
+              display: 'inline-flex',
+              alignItems: 'center',
+            }}
+            title="Copy Project ID"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.5"
+              style={{ width: '12px', height: '12px' }}
+            >
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+          </button>
+        </div>
+      )}
 
       {isCreating && (
         <div class="project-create-row">

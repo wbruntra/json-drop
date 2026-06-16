@@ -15,7 +15,6 @@ type Props = {
 
 export function TokenManager({ projectId }: Props) {
   const [tokens, setTokens] = useState<Token[]>([])
-  const [newToken, setNewToken] = useState('')
   const [newPermissions, setNewPermissions] = useState('read_write')
   const [createdToken, setCreatedToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -34,13 +33,10 @@ export function TokenManager({ projectId }: Props) {
   }, [projectId])
 
   const handleCreate = async () => {
-    if (!newToken.trim()) return
-
     const res = await api('/api/tokens', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name: newToken,
         permissions: newPermissions,
         ...(projectId ? { project_id: projectId } : {}),
       }),
@@ -50,7 +46,6 @@ export function TokenManager({ projectId }: Props) {
       const data = await res.json()
       storeCreatedToken(data.token)
       setCreatedToken(data.token)
-      setNewToken('')
       fetchTokens()
     }
   }
@@ -103,12 +98,6 @@ export function TokenManager({ projectId }: Props) {
       )}
 
       <div class="create-token">
-        <input
-          type="text"
-          placeholder="Token name"
-          value={newToken}
-          onInput={(e) => setNewToken((e.target as HTMLInputElement).value)}
-        />
         <select
           value={newPermissions}
           onChange={(e) => setNewPermissions((e.target as HTMLSelectElement).value)}
@@ -132,8 +121,19 @@ export function TokenManager({ projectId }: Props) {
             .map((token) => (
               <div key={token.id} class="token-item">
                 <div class="token-info">
-                  <strong>{token.name}</strong>
-                  <span class="permissions">{token.permissions}</span>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <span class="permissions">{token.permissions}</span>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      {token.project_id ? `Project Scope` : 'Global Scope'}
+                    </span>
+                  </div>
                   <span class="created">
                     Created: {new Date(token.created_at).toLocaleDateString()}
                   </span>

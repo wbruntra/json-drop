@@ -7,7 +7,7 @@ type Props = {
 
 export function CurlGuide({ projectId }: Props) {
   const [showGuide, setShowGuide] = useState(false)
-  const [lang, setLang] = useState<'curl' | 'js'>('curl')
+  const [lang, setLang] = useState<'sdk' | 'curl' | 'axios'>('sdk')
   const [docId] = useState('abc123')
   const [secret] = useState('your-secret-here')
   const [exampleProjectId] = useState('proj_abc')
@@ -35,18 +35,56 @@ export function CurlGuide({ projectId }: Props) {
           </p>
 
           <div class="lang-toggle">
+            <button class={lang === 'sdk' ? 'active' : ''} onClick={() => setLang('sdk')}>
+              JavaScript SDK
+            </button>
             <button class={lang === 'curl' ? 'active' : ''} onClick={() => setLang('curl')}>
               curl
             </button>
-            <button class={lang === 'js' ? 'active' : ''} onClick={() => setLang('js')}>
-              JavaScript (axios)
+            <button class={lang === 'axios' ? 'active' : ''} onClick={() => setLang('axios')}>
+              axios
             </button>
           </div>
 
-          {lang === 'js' && (
+          {lang === 'axios' && (
             <p class="guide-intro">
               Install: <code>bun add axios</code> or <code>npm install axios</code>
             </p>
+          )}
+
+          {lang === 'sdk' && (
+            <div class="sdk-setup-guide">
+              <p class="guide-intro">
+                Install: <code>bun add json-drop</code> or <code>npm install json-drop</code>
+              </p>
+
+              <div class="curl-block" style={{ borderLeft: '3px solid var(--accent)' }}>
+                <span class="curl-label" style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
+                  SDK Setup &amp; Initialization
+                </span>
+                <p class="guide-intro" style={{ marginBottom: '0.75rem' }}>
+                  To set up your application, initialize the <code>JsonDrop</code> client. Pass
+                  your <strong>Project ID</strong> (<code>{projectId || 'your-project-id'}</code>)
+                  to scope anonymous operations, and your <strong>API Token</strong> to
+                  authenticate.
+                </p>
+                <pre>
+                  <code>{`import { JsonDrop } from 'json-drop'
+
+const db = new JsonDrop({
+  baseUrl: '${baseUrl}',
+  token: ${token !== '${YOUR_API_TOKEN}' ? `'${token}'` : `'YOUR_API_TOKEN'`}, // authenticate requests
+  ${projectId ? `project: '${projectId}', // scope anonymous operations to this project` : `project: 'YOUR_PROJECT_ID', // scope anonymous operations to this project`}
+  // secret: 'your-optional-access-secret' // default access secret for private docs
+})`}</code>
+                </pre>
+                <span class="curl-note">
+                  💡 <strong>Tip:</strong> If your API Token is already scoped to a project, the
+                  SDK will automatically scope operations to that project even without a{' '}
+                  <code>project</code> option.
+                </span>
+              </div>
+            </div>
           )}
 
           <h4>Authentication</h4>
@@ -60,16 +98,22 @@ export function CurlGuide({ projectId }: Props) {
 
           <div class="curl-block">
             <span class="curl-label">Get current user:</span>
-            {lang === 'curl' ? (
+            {lang === 'curl' && (
               <pre>
                 <code>{`curl ${baseUrl}/api/me \\
   -H "Authorization: Bearer ${token}"`}</code>
               </pre>
-            ) : (
+            )}
+            {lang === 'axios' && (
               <pre>
                 <code>{`const { data: user } = await axios.get('${baseUrl}/api/me', {
   headers: { Authorization: \`Bearer ${token}\` }
 })`}</code>
+              </pre>
+            )}
+            {lang === 'sdk' && (
+              <pre>
+                <code>{`const user = await db.me()`}</code>
               </pre>
             )}
           </div>
@@ -77,23 +121,24 @@ export function CurlGuide({ projectId }: Props) {
           <h4>Projects</h4>
           <div class="curl-block">
             <span class="curl-label">Create / List / Delete a project:</span>
-            {lang === 'curl' ? (
+            {lang === 'curl' && (
               <pre>
                 <code>{`# create a project
-  curl -X POST ${baseUrl}/api/projects \\
-    -H "Authorization: Bearer ${token}" \\
-    -H "Content-Type: application/json" \\
-    -d '{"name": "My App"}'
+curl -X POST ${baseUrl}/api/projects \\
+  -H "Authorization: Bearer ${token}" \\
+  -H "Content-Type: application/json" \\
+  -d '{"name": "My App"}'
 
 # list your projects
-  curl ${baseUrl}/api/projects \\
-    -H "Authorization: Bearer ${token}"
+curl ${baseUrl}/api/projects \\
+  -H "Authorization: Bearer ${token}"
 
 # delete a project (admin required)
-  curl -X DELETE ${baseUrl}/api/projects/${exampleProjectId} \\
-    -H "Authorization: Bearer ${token}"`}</code>
+curl -X DELETE ${baseUrl}/api/projects/${exampleProjectId} \\
+  -H "Authorization: Bearer ${token}"`}</code>
               </pre>
-            ) : (
+            )}
+            {lang === 'axios' && (
               <pre>
                 <code>{`// create a project
 const { data: project } = await axios.post(
@@ -113,25 +158,47 @@ await axios.delete('${baseUrl}/api/projects/${exampleProjectId}', {
 })`}</code>
               </pre>
             )}
+            {lang === 'sdk' && (
+              <pre>
+                <code>{`// create a project
+const project = await db.projects.create({ name: 'My App' })
+
+// list your projects
+const projects = await db.projects.list()
+
+// delete a project (admin required)
+await db.projects.delete('${exampleProjectId}')`}</code>
+              </pre>
+            )}
           </div>
 
           <h4>API Token Management</h4>
           <div class="curl-block">
             <span class="curl-label">Create a token (admin required):</span>
-            {lang === 'curl' ? (
+            {lang === 'curl' && (
               <pre>
                 <code>{`curl -X POST ${baseUrl}/api/tokens \\
   -H "Authorization: Bearer ${token}" \\
   -H "Content-Type: application/json" \\
-  -d '{"name": "my-token", "permissions": "read_write"${projectField}}'`}</code>
+  -d '{"permissions": "read_write"${projectField}}'`}</code>
               </pre>
-            ) : (
+            )}
+            {lang === 'axios' && (
               <pre>
                 <code>{`const { data } = await axios.post(
   '${baseUrl}/api/tokens',
-  { name: 'my-token', permissions: 'read_write'${projectField} },
+  { permissions: 'read_write'${projectField} },
   { headers: { Authorization: \`Bearer ${token}\` } }
 )
+// data.token — your new API token`}</code>
+              </pre>
+            )}
+            {lang === 'sdk' && (
+              <pre>
+                <code>{`const data = await db.request('/api/tokens', {
+  method: 'POST',
+  body: { permissions: 'read_write'${projectId ? `, project_id: '${projectId}'` : ''} }
+})
 // data.token — your new API token`}</code>
               </pre>
             )}
@@ -143,7 +210,7 @@ await axios.delete('${baseUrl}/api/projects/${exampleProjectId}', {
 
           <div class="curl-block">
             <span class="curl-label">List / Revoke:</span>
-            {lang === 'curl' ? (
+            {lang === 'curl' && (
               <pre>
                 <code>{`# list tokens
 curl ${baseUrl}/api/tokens \\
@@ -153,7 +220,8 @@ curl ${baseUrl}/api/tokens \\
 curl -X DELETE ${baseUrl}/api/tokens/123 \\
   -H "Authorization: Bearer ${token}"`}</code>
               </pre>
-            ) : (
+            )}
+            {lang === 'axios' && (
               <pre>
                 <code>{`// list
 const { data: tokens } = await axios.get('${baseUrl}/api/tokens', {
@@ -166,12 +234,21 @@ await axios.delete('${baseUrl}/api/tokens/123', {
 })`}</code>
               </pre>
             )}
+            {lang === 'sdk' && (
+              <pre>
+                <code>{`// list tokens
+const tokens = await db.request('/api/tokens', { method: 'GET' })
+
+// revoke
+await db.request('/api/tokens/123', { method: 'DELETE' })`}</code>
+              </pre>
+            )}
           </div>
 
           <h4>Documents — Create / Update</h4>
           <div class="curl-block">
             <span class="curl-label">Create or Update a document (by path):</span>
-            {lang === 'curl' ? (
+            {lang === 'curl' && (
               <pre>
                 <code>{`# public (create/update a document at path "config")
 curl -X PUT ${baseUrl}/api/docs/config${projectQ} \\
@@ -185,7 +262,8 @@ curl -X PUT ${baseUrl}/api/docs/notes/todo${projectQ} \\
   -H "Content-Type: application/json" \\
   -d '{"content":{"task":"buy milk"},"access_mode":"private"}'`}</code>
               </pre>
-            ) : (
+            )}
+            {lang === 'axios' && (
               <pre>
                 <code>{`const { data } = await axios.put(
   '${baseUrl}/api/docs/notes/todo${projectQ}',
@@ -199,21 +277,39 @@ const { id, access_secret } = data
 // save access_secret — won't be shown again if newly created`}</code>
               </pre>
             )}
+            {lang === 'sdk' && (
+              <pre>
+                <code>{`// public (create/update a document at path "config")
+await db.doc('config').set(
+  { theme: 'dark' },
+  { accessMode: 'public' }
+)
+
+// private (create/update a document at path "notes/todo")
+const { id, access_secret } = await db.doc('notes/todo').set(
+  { task: 'buy milk' },
+  { accessMode: 'private' }
+)
+// save access_secret — won't be shown again if newly created`}</code>
+              </pre>
+            )}
             <span class="curl-note">
               Access modes: <code>public</code>, <code>public_read_secret_write</code>,{' '}
-              <code>private</code>. Add <code>?project=&lt;id&gt;</code> to scope to a project.
+              <code>private</code>. Add <code>?project=&lt;id&gt;</code> (or configure{' '}
+              <code>project</code> in SDK) to scope to a project.
             </span>
           </div>
 
           <div class="curl-block">
             <span class="curl-label">Update with secret (no owner authentication needed):</span>
-            {lang === 'curl' ? (
+            {lang === 'curl' && (
               <pre>
                 <code>{`curl -X PUT '${baseUrl}/api/docs/notes/todo?secret=${secret}${projectId ? `&project=${projectId}` : ''}' \\
   -H "Content-Type: application/json" \\
   -d '{"content":{"task":"buy milk and bread"},"access_mode":"private"}'`}</code>
               </pre>
-            ) : (
+            )}
+            {lang === 'axios' && (
               <pre>
                 <code>{`const { data } = await axios.put(
   '${baseUrl}/api/docs/notes/todo',
@@ -225,12 +321,20 @@ const { id, access_secret } = data
 )`}</code>
               </pre>
             )}
+            {lang === 'sdk' && (
+              <pre>
+                <code>{`await db.doc('notes/todo').set(
+  { task: 'buy milk and bread' },
+  { accessMode: 'private', secret: '${secret}' }
+)`}</code>
+              </pre>
+            )}
           </div>
 
           <h4>Documents — Read</h4>
           <div class="curl-block">
             <span class="curl-label">Read a document (by path):</span>
-            {lang === 'curl' ? (
+            {lang === 'curl' && (
               <pre>
                 <code>{`# public (no auth)
 curl '${baseUrl}/api/docs?path=notes/todo${projectId ? `&project=${projectId}` : ''}'
@@ -242,7 +346,8 @@ curl '${baseUrl}/api/docs?path=notes/todo&secret=${secret}${projectId ? `&projec
 curl '${baseUrl}/api/docs?path=notes/todo${projectId ? `&project=${projectId}` : ''}' \\
   -H "Authorization: Bearer ${token}"`}</code>
               </pre>
-            ) : (
+            )}
+            {lang === 'axios' && (
               <pre>
                 <code>{`// public (no auth)
 const { data } = await axios.get('${baseUrl}/api/docs', {
@@ -261,11 +366,20 @@ const { data } = await axios.get('${baseUrl}/api/docs', {
 })`}</code>
               </pre>
             )}
+            {lang === 'sdk' && (
+              <pre>
+                <code>{`// public (no auth) or as owner (using initialized token)
+const doc = await db.doc('notes/todo').get()
+
+// private with secret
+const doc = await db.doc('notes/todo').get({ secret: '${secret}' })`}</code>
+              </pre>
+            )}
           </div>
 
           <div class="curl-block">
             <span class="curl-label">List all your documents (supports path filtering):</span>
-            {lang === 'curl' ? (
+            {lang === 'curl' && (
               <pre>
                 <code>{`# list all in scope
 curl '${baseUrl}/api/docs${projectQ}' \\
@@ -275,7 +389,8 @@ curl '${baseUrl}/api/docs${projectQ}' \\
 curl '${baseUrl}/api/docs?prefix=notes${projectId ? `&project=${projectId}` : ''}' \\
   -H "Authorization: Bearer ${token}"`}</code>
               </pre>
-            ) : (
+            )}
+            {lang === 'axios' && (
               <pre>
                 <code>{`// list all in scope (includes storage info)
 const { data: { docs, storage } } = await axios.get('${baseUrl}/api/docs${projectQ}', {
@@ -289,22 +404,37 @@ const { data: { docs } } = await axios.get('${baseUrl}/api/docs', {
 })`}</code>
               </pre>
             )}
+            {lang === 'sdk' && (
+              <pre>
+                <code>{`// list all in scope (includes storage info)
+const { docs, storage } = await db.request('/api/docs', { method: 'GET' })
+
+// list only under "notes" collection prefix
+const { docs } = await db.collection('notes').list()`}</code>
+              </pre>
+            )}
           </div>
 
           <h4>Documents — Delete</h4>
           <div class="curl-block">
             <span class="curl-label">Delete a document (by path):</span>
-            {lang === 'curl' ? (
+            {lang === 'curl' && (
               <pre>
                 <code>{`curl -X DELETE '${baseUrl}/api/docs?path=notes/todo${projectId ? `&project=${projectId}` : ''}' \\
   -H "Authorization: Bearer ${token}"`}</code>
               </pre>
-            ) : (
+            )}
+            {lang === 'axios' && (
               <pre>
                 <code>{`await axios.delete('${baseUrl}/api/docs', {
   params: { path: 'notes/todo'${projectId ? `, project: '${projectId}'` : ''} },
   headers: { Authorization: \`Bearer ${token}\` }
 })`}</code>
+              </pre>
+            )}
+            {lang === 'sdk' && (
+              <pre>
+                <code>{`await db.doc('notes/todo').delete()`}</code>
               </pre>
             )}
           </div>

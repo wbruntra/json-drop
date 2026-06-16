@@ -2,11 +2,13 @@
 
 ## Corrections
 
-| Date       | Source | What Went Wrong                                          | What To Do Instead                                                                                                                                                 |
-| ---------- | ------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 2026-06-11 | user   | JS code examples showed literal `\${token}` string in UI | Interpolated actual token value using `${token}` at render time, similar to curl examples                                                                          |
-| 2026-06-12 | agent  | Old frontend used broken POST /api/docs and named fields | Updated frontend to support new design: PUT /api/docs/{path} (create/update), GET/DELETE /api/docs/{id}, sidebar collections grouping, and updated Curl API guide. |
-| 2026-06-12 | agent  | Vite build failed due to --outdir option in package.json | Fixed --outdir to --outDir in package.json to match Vite CLI expectations.                                                                                         |
+| Date       | Source | What Went Wrong                                           | What To Do Instead                                                                                                                                                 |
+| ---------- | ------ | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-06-11 | user   | JS code examples showed literal `\${token}` string in UI  | Interpolated actual token value using `${token}` at render time, similar to curl examples                                                                          |
+| 2026-06-12 | agent  | Old frontend used broken POST /api/docs and named fields  | Updated frontend to support new design: PUT /api/docs/{path} (create/update), GET/DELETE /api/docs/{id}, sidebar collections grouping, and updated Curl API guide. |
+| 2026-06-12 | agent  | Vite build failed due to --outdir option in package.json  | Fixed --outdir to --outDir in package.json to match Vite CLI expectations.                                                                                         |
+| 2026-06-16 | agent  | SDK documentation missing from frontend                   | Replaced Preact CurlGuide code examples tab with three options (SDK, curl, axios) and detailed SDK installation/init instructions.                                 |
+| 2026-06-16 | agent  | Token custom name was redundant and Project ID was hidden | Removed Token name input, displayed scopes/permissions for listed tokens, and added copyable Project ID display in header & dashboard context.                     |
 
 ## User Preferences
 

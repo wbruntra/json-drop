@@ -1,15 +1,26 @@
-import axios from 'axios'
+import { JsonDrop } from './sdk/src/index'
 
-const token = 'jd_40e73e1b73bd4670b26f0d3bd48dd2676d7ecce6c8ab4ea18d1721265822b8f0'
-const PORT = process.env.PORT || 11099
-
-const {
-  data: { docs, storage },
-} = await axios.get(`http://localhost:${PORT}/api/docs`, {
-  headers: {
-    Authorization: `Bearer ${token}`,
-  },
+const db = new JsonDrop({
+  baseUrl: 'http://localhost:5174',
+  token: 'jd_da830c78e7114864a5da3e2ee186be2080a32322618a493281c0d46cfe9ef727', // authenticate requests
+  project: '8qfjdCzuDQNjyYsKQEXcAM', // scope anonymous operations to this project
+  // secret: 'your-optional-access-secret' // default access secret for private docs
 })
 
-console.log('docs', docs)
-console.log('storage', storage)
+const user = await db.me()
+
+console.log('user', user)
+
+// list your projects
+const projects = await db.projects.list()
+
+console.log('projects', projects)
+
+// const doc = await db
+//   .doc('checkins')
+//   .set({ time: new Date().toISOString() }, { accessMode: 'public' })
+// console.log('doc', doc)
+
+const savedDoc = await db.doc('checkins').get('tG3W6jgnDanfmuQjbkzfo1')
+
+console.log('savedDoc', savedDoc)

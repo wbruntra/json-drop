@@ -58,8 +58,26 @@ export function Dashboard({ user, onLogout }: Props) {
 
       <main class="dashboard-container">
         <div class="project-context">
-          <div class="project-context-title">
-            {projectId ? 'Project Database' : 'Global Database'}
+          <div
+            class="project-context-title"
+            style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}
+          >
+            <span>{projectId ? 'Project Database' : 'Global Database'}</span>
+            {projectId && (
+              <span
+                class="badge"
+                style={{
+                  fontFamily: 'var(--font-mono)',
+                  fontSize: '0.75rem',
+                  textTransform: 'none',
+                  background: 'var(--accent-light)',
+                  color: 'var(--accent)',
+                  border: '1px solid rgba(99, 102, 241, 0.2)',
+                }}
+              >
+                ID: {projectId}
+              </span>
+            )}
           </div>
           <p class="project-context-help">
             {projectId
