@@ -1,4 +1,3 @@
-import type { HTMLBundle } from 'bun'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { rateLimiter, MemoryStore } from 'hono-rate-limiter'
@@ -29,8 +28,6 @@ type Bindings = {
 
 export type ServerOptions = {
   port?: number
-  homepage?: HTMLBundle
-  development?: { hmr: boolean; console: boolean } | false
 }
 
 async function authMiddleware(c: Context, next: Next) {
@@ -40,7 +37,7 @@ async function authMiddleware(c: Context, next: Next) {
   await next()
 }
 
-export function createApp(options: ServerOptions = {}) {
+export function createApp() {
   const app = new Hono<Bindings>()
 
   app.use('*', cors())
@@ -95,24 +92,15 @@ export function createApp(options: ServerOptions = {}) {
   app.get('/api/dev/login', handleDevLogin)
   app.post('/api/dev/token', handleDevCreateToken)
 
-  // Homepage
-  if (options.homepage) {
-    app.get('/', () => new Response(options.homepage as unknown as BodyInit))
-  }
-
   return app
 }
 
 export function createServer(options: ServerOptions = {}) {
-  const app = createApp(options)
+  const app = createApp()
 
   return Bun.serve({
     port: options.port ?? 3000,
-    development: options.development ?? false,
-    async fetch(req, server) {
-      if (options.homepage && new URL(req.url).pathname === '/') {
-        return options.homepage as unknown as Response
-      }
+    fetch(req, server) {
       return app.fetch(req, server)
     },
   })

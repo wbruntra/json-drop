@@ -1,24 +1,21 @@
 import { initDatabase } from './kysely-db'
 import { createServer } from './server'
-import type { ServerOptions } from './server'
 
-const isDev = process.env.NODE_ENV === 'development'
+async function bootstrap() {
+  await initDatabase(process.env.DATABASE_URL || 'db.sqlite')
 
-await initDatabase(process.env.DATABASE_URL || 'db.sqlite')
+  const server = createServer({
+    port: Number(process.env.PORT) || 3000,
+  })
 
-let homepage: ServerOptions['homepage']
-if (!isDev) {
-  homepage = (await import('./frontend/index.html')).default
+  console.log(`Listening on http://localhost:${server.port}`)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Dev mode enabled')
+    console.log('Dev endpoints: /api/dev/login, /api/dev/token')
+  }
 }
 
-const server = createServer({
-  port: Number(process.env.PORT) || 3000,
-  homepage,
-  development: isDev ? { hmr: true, console: true } : false,
+bootstrap().catch((err) => {
+  console.error(err)
+  process.exit(1)
 })
-
-console.log(`Listening on http://localhost:${server.port}`)
-if (isDev) {
-  console.log('Dev mode enabled')
-  console.log('Dev endpoints: /api/dev/login, /api/dev/token')
-}
