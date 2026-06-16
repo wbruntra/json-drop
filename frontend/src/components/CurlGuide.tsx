@@ -1,14 +1,22 @@
 import { useState } from 'preact/hooks'
 import { getExampleToken } from '../api'
 
-export function CurlGuide() {
+type Props = {
+  projectId: string | null
+}
+
+export function CurlGuide({ projectId }: Props) {
   const [showGuide, setShowGuide] = useState(false)
   const [lang, setLang] = useState<'curl' | 'js'>('curl')
   const [docId] = useState('abc123')
   const [secret] = useState('your-secret-here')
+  const [exampleProjectId] = useState('proj_abc')
   const token = getExampleToken() || '${YOUR_API_TOKEN}'
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+
+  const projectQ = projectId ? `?project=${projectId}` : ''
+  const projectField = projectId ? `, "project_id": "${projectId}"` : ''
 
   return (
     <div class="curl-guide">
@@ -66,6 +74,47 @@ export function CurlGuide() {
             )}
           </div>
 
+          <h4>Projects</h4>
+          <div class="curl-block">
+            <span class="curl-label">Create / List / Delete a project:</span>
+            {lang === 'curl' ? (
+              <pre>
+                <code>{`# create a project
+  curl -X POST ${baseUrl}/api/projects \\
+    -H "Authorization: Bearer ${token}" \\
+    -H "Content-Type: application/json" \\
+    -d '{"name": "My App"}'
+
+# list your projects
+  curl ${baseUrl}/api/projects \\
+    -H "Authorization: Bearer ${token}"
+
+# delete a project (admin required)
+  curl -X DELETE ${baseUrl}/api/projects/${exampleProjectId} \\
+    -H "Authorization: Bearer ${token}"`}</code>
+              </pre>
+            ) : (
+              <pre>
+                <code>{`// create a project
+const { data: project } = await axios.post(
+  '${baseUrl}/api/projects',
+  { name: 'My App' },
+  { headers: { Authorization: \`Bearer ${token}\` } }
+)
+
+// list your projects
+const { data: projects } = await axios.get('${baseUrl}/api/projects', {
+  headers: { Authorization: \`Bearer ${token}\` }
+})
+
+// delete a project (admin required)
+await axios.delete('${baseUrl}/api/projects/${exampleProjectId}', {
+  headers: { Authorization: \`Bearer ${token}\` }
+})`}</code>
+              </pre>
+            )}
+          </div>
+
           <h4>API Token Management</h4>
           <div class="curl-block">
             <span class="curl-label">Create a token (admin required):</span>
@@ -74,13 +123,13 @@ export function CurlGuide() {
                 <code>{`curl -X POST ${baseUrl}/api/tokens \\
   -H "Authorization: Bearer ${token}" \\
   -H "Content-Type: application/json" \\
-  -d '{"name": "my-token", "permissions": "read_write"}'`}</code>
+  -d '{"name": "my-token", "permissions": "read_write"${projectField}}'`}</code>
               </pre>
             ) : (
               <pre>
                 <code>{`const { data } = await axios.post(
   '${baseUrl}/api/tokens',
-  { name: 'my-token', permissions: 'read_write' },
+  { name: 'my-token', permissions: 'read_write'${projectField} },
   { headers: { Authorization: \`Bearer ${token}\` } }
 )
 // data.token — your new API token`}</code>
@@ -88,7 +137,7 @@ export function CurlGuide() {
             )}
             <span class="curl-note">
               Permissions: <code>read</code>, <code>write</code>, <code>read_write</code>,{' '}
-              <code>admin</code>
+              <code>admin</code>. Add <code>project_id</code> to scope a token to a single project.
             </span>
           </div>
 
@@ -125,13 +174,13 @@ await axios.delete('${baseUrl}/api/tokens/123', {
             {lang === 'curl' ? (
               <pre>
                 <code>{`# public (create/update a document at path "config")
-curl -X PUT ${baseUrl}/api/docs/config \\
+curl -X PUT ${baseUrl}/api/docs/config${projectQ} \\
   -H "Authorization: Bearer ${token}" \\
   -H "Content-Type: application/json" \\
   -d '{"content":{"theme":"dark"},"access_mode":"public"}'
 
 # private (create/update a document at path "notes/todo")
-curl -X PUT ${baseUrl}/api/docs/notes/todo \\
+curl -X PUT ${baseUrl}/api/docs/notes/todo${projectQ} \\
   -H "Authorization: Bearer ${token}" \\
   -H "Content-Type: application/json" \\
   -d '{"content":{"task":"buy milk"},"access_mode":"private"}'`}</code>
@@ -139,7 +188,7 @@ curl -X PUT ${baseUrl}/api/docs/notes/todo \\
             ) : (
               <pre>
                 <code>{`const { data } = await axios.put(
-  '${baseUrl}/api/docs/notes/todo',
+  '${baseUrl}/api/docs/notes/todo${projectQ}',
   {
     content: { task: 'buy milk' },
     access_mode: 'private'
@@ -152,7 +201,7 @@ const { id, access_secret } = data
             )}
             <span class="curl-note">
               Access modes: <code>public</code>, <code>public_read_secret_write</code>,{' '}
-              <code>private</code>
+              <code>private</code>. Add <code>?project=&lt;id&gt;</code> to scope to a project.
             </span>
           </div>
 
@@ -160,7 +209,7 @@ const { id, access_secret } = data
             <span class="curl-label">Update with secret (no owner authentication needed):</span>
             {lang === 'curl' ? (
               <pre>
-                <code>{`curl -X PUT '${baseUrl}/api/docs/notes/todo?secret=${secret}' \\
+                <code>{`curl -X PUT '${baseUrl}/api/docs/notes/todo?secret=${secret}${projectId ? `&project=${projectId}` : ''}' \\
   -H "Content-Type: application/json" \\
   -d '{"content":{"task":"buy milk and bread"},"access_mode":"private"}'`}</code>
               </pre>
@@ -172,7 +221,7 @@ const { id, access_secret } = data
     content: { task: 'buy milk and bread' },
     access_mode: 'private'
   },
-  { params: { secret: '${secret}' } }
+  { params: { secret: '${secret}'${projectId ? `, project: '${projectId}'` : ''} } }
 )`}</code>
               </pre>
             )}
@@ -180,31 +229,34 @@ const { id, access_secret } = data
 
           <h4>Documents — Read</h4>
           <div class="curl-block">
-            <span class="curl-label">Read a document (by ID):</span>
+            <span class="curl-label">Read a document (by path):</span>
             {lang === 'curl' ? (
               <pre>
                 <code>{`# public (no auth)
-curl ${baseUrl}/api/docs/${docId}
+curl '${baseUrl}/api/docs?path=notes/todo${projectId ? `&project=${projectId}` : ''}'
 
 # private with secret
-curl '${baseUrl}/api/docs/${docId}?secret=${secret}'
+curl '${baseUrl}/api/docs?path=notes/todo&secret=${secret}${projectId ? `&project=${projectId}` : ''}'
 
 # as owner
-curl ${baseUrl}/api/docs/${docId} \\
+curl '${baseUrl}/api/docs?path=notes/todo${projectId ? `&project=${projectId}` : ''}' \\
   -H "Authorization: Bearer ${token}"`}</code>
               </pre>
             ) : (
               <pre>
                 <code>{`// public (no auth)
-const { data } = await axios.get('${baseUrl}/api/docs/${docId}')
+const { data } = await axios.get('${baseUrl}/api/docs', {
+  params: { path: 'notes/todo'${projectId ? `, project: '${projectId}'` : ''} }
+})
 
 // private with secret
-const { data } = await axios.get('${baseUrl}/api/docs/${docId}', {
-  params: { secret: '${secret}' }
+const { data } = await axios.get('${baseUrl}/api/docs', {
+  params: { path: 'notes/todo', secret: '${secret}'${projectId ? `, project: '${projectId}'` : ''} }
 })
 
 // as owner
-const { data } = await axios.get('${baseUrl}/api/docs/${docId}', {
+const { data } = await axios.get('${baseUrl}/api/docs', {
+  params: { path: 'notes/todo'${projectId ? `, project: '${projectId}'` : ''} },
   headers: { Authorization: \`Bearer ${token}\` }
 })`}</code>
               </pre>
@@ -215,24 +267,24 @@ const { data } = await axios.get('${baseUrl}/api/docs/${docId}', {
             <span class="curl-label">List all your documents (supports path filtering):</span>
             {lang === 'curl' ? (
               <pre>
-                <code>{`# list all yours
-curl ${baseUrl}/api/docs \\
+                <code>{`# list all in scope
+curl '${baseUrl}/api/docs${projectQ}' \\
   -H "Authorization: Bearer ${token}"
 
-# list only yours under "notes" collection
-curl '${baseUrl}/api/docs?prefix=notes' \\
+# list only under "notes" collection
+curl '${baseUrl}/api/docs?prefix=notes${projectId ? `&project=${projectId}` : ''}' \\
   -H "Authorization: Bearer ${token}"`}</code>
               </pre>
             ) : (
               <pre>
-                <code>{`// list all (includes storage info)
-const { data: { docs, storage } } = await axios.get('${baseUrl}/api/docs', {
+                <code>{`// list all in scope (includes storage info)
+const { data: { docs, storage } } = await axios.get('${baseUrl}/api/docs${projectQ}', {
   headers: { Authorization: \`Bearer ${token}\` }
 })
 
 // list only under "notes" prefix
 const { data: { docs } } = await axios.get('${baseUrl}/api/docs', {
-  params: { prefix: 'notes' },
+  params: { prefix: 'notes'${projectId ? `, project: '${projectId}'` : ''} },
   headers: { Authorization: \`Bearer ${token}\` }
 })`}</code>
               </pre>
@@ -241,15 +293,16 @@ const { data: { docs } } = await axios.get('${baseUrl}/api/docs', {
 
           <h4>Documents — Delete</h4>
           <div class="curl-block">
-            <span class="curl-label">Delete a document:</span>
+            <span class="curl-label">Delete a document (by path):</span>
             {lang === 'curl' ? (
               <pre>
-                <code>{`curl -X DELETE ${baseUrl}/api/docs/${docId} \\
+                <code>{`curl -X DELETE '${baseUrl}/api/docs?path=notes/todo${projectId ? `&project=${projectId}` : ''}' \\
   -H "Authorization: Bearer ${token}"`}</code>
               </pre>
             ) : (
               <pre>
-                <code>{`await axios.delete('${baseUrl}/api/docs/${docId}', {
+                <code>{`await axios.delete('${baseUrl}/api/docs', {
+  params: { path: 'notes/todo'${projectId ? `, project: '${projectId}'` : ''} },
   headers: { Authorization: \`Bearer ${token}\` }
 })`}</code>
               </pre>

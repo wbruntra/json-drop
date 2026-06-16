@@ -249,9 +249,10 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 0 1.5rem;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
+  gap: 1.5rem;
   width: 100%;
 }
 
@@ -279,6 +280,7 @@ body {
 .user-info {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 1rem;
 }
 
@@ -311,6 +313,109 @@ body {
   border-color: var(--text-muted);
 }
 
+.header-center {
+  justify-self: center;
+  min-width: 260px;
+  max-width: 420px;
+  width: 100%;
+}
+
+/* --- Project Selector --- */
+.project-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.project-selector-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.project-selector-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.project-selector-select {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 2.25rem 0.5rem 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 500;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  outline: none;
+  cursor: pointer;
+  transition: var(--transition-fast);
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 1rem;
+}
+
+.project-selector-select:hover,
+.project-selector-select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.project-selector-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.project-selector-delete:hover {
+  background: var(--error-bg);
+  border-color: var(--error-border);
+  color: var(--error-text);
+}
+
+.project-selector-delete svg {
+  width: 14px;
+  height: 14px;
+}
+
+.project-create-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.project-create-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.project-create-row .create-btn,
+.project-create-row .dismiss-btn {
+  padding: 0.5rem 0.85rem;
+  font-size: 0.8rem;
+}
+
+.project-selector-error {
+  font-size: 0.75rem;
+  color: var(--error-text);
+}
+
 /* --- Dashboard Layout --- */
 .dashboard-container {
   max-width: 1200px;
@@ -318,6 +423,26 @@ body {
   padding: 2rem 1.5rem;
   width: 100%;
   flex: 1;
+}
+
+.project-context {
+  margin-bottom: 1.5rem;
+  padding: 1.25rem 1.5rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.project-context-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.project-context-help {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
 }
 
 .dashboard-grid {

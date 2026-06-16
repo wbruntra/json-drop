@@ -19,7 +19,15 @@ type StorageInfo = {
   limit: string
 }
 
-export function DocManager() {
+type Props = {
+  projectId: string | null
+}
+
+function projectQuery(projectId: string | null): string {
+  return projectId ? `?project=${encodeURIComponent(projectId)}` : ''
+}
+
+export function DocManager({ projectId }: Props) {
   const [docs, setDocs] = useState<Doc[]>([])
   const [storage, setStorage] = useState<StorageInfo | null>(null)
   const [loading, setLoading] = useState(true)
@@ -49,7 +57,7 @@ export function DocManager() {
   const dialogRef = useRef<HTMLDialogElement | null>(null)
 
   const fetchDocs = async () => {
-    const res = await api('/api/docs')
+    const res = await api(`/api/docs${projectQuery(projectId)}`)
     if (res.ok) {
       const data = await res.json()
       setDocs(data.docs)
@@ -59,8 +67,9 @@ export function DocManager() {
   }
 
   useEffect(() => {
+    setLoading(true)
     fetchDocs()
-  }, [])
+  }, [projectId])
 
   // Setup click outside fallback for the <dialog>
   useEffect(() => {
@@ -169,7 +178,7 @@ export function DocManager() {
       return
     }
 
-    const res = await api(`/api/docs/${encodeURIComponent(formPath)}`, {
+    const res = await api(`/api/docs/${encodeURIComponent(formPath)}${projectQuery(projectId)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -193,7 +202,8 @@ export function DocManager() {
 
   const handleDelete = async (doc: Doc) => {
     if (!confirm(`Delete document at "${doc.path}"?`)) return
-    const res = await api(`/api/docs/${doc.id}`, { method: 'DELETE' })
+    const query = `?path=${encodeURIComponent(doc.path)}${projectId ? `&project=${encodeURIComponent(projectId)}` : ''}`
+    const res = await api(`/api/docs${query}`, { method: 'DELETE' })
     if (res.ok) {
       fetchDocs()
     } else {

@@ -5,10 +5,15 @@ type Token = {
   id: number
   name: string
   permissions: string
+  project_id: string | null
   created_at: string
 }
 
-export function TokenManager() {
+type Props = {
+  projectId: string | null
+}
+
+export function TokenManager({ projectId }: Props) {
   const [tokens, setTokens] = useState<Token[]>([])
   const [newToken, setNewToken] = useState('')
   const [newPermissions, setNewPermissions] = useState('read_write')
@@ -26,7 +31,7 @@ export function TokenManager() {
 
   useEffect(() => {
     fetchTokens()
-  }, [])
+  }, [projectId])
 
   const handleCreate = async () => {
     if (!newToken.trim()) return
@@ -34,7 +39,11 @@ export function TokenManager() {
     const res = await api('/api/tokens', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newToken, permissions: newPermissions }),
+      body: JSON.stringify({
+        name: newToken,
+        permissions: newPermissions,
+        ...(projectId ? { project_id: projectId } : {}),
+      }),
     })
 
     if (res.ok) {
@@ -115,23 +124,25 @@ export function TokenManager() {
       </div>
 
       <div class="token-list">
-        {tokens.length === 0 ? (
+        {tokens.filter((t) => t.project_id === projectId).length === 0 ? (
           <p class="empty">No tokens yet. Create one above.</p>
         ) : (
-          tokens.map((token) => (
-            <div key={token.id} class="token-item">
-              <div class="token-info">
-                <strong>{token.name}</strong>
-                <span class="permissions">{token.permissions}</span>
-                <span class="created">
-                  Created: {new Date(token.created_at).toLocaleDateString()}
-                </span>
+          tokens
+            .filter((t) => t.project_id === projectId)
+            .map((token) => (
+              <div key={token.id} class="token-item">
+                <div class="token-info">
+                  <strong>{token.name}</strong>
+                  <span class="permissions">{token.permissions}</span>
+                  <span class="created">
+                    Created: {new Date(token.created_at).toLocaleDateString()}
+                  </span>
+                </div>
+                <button onClick={() => handleDelete(token.id)} class="delete-btn">
+                  Revoke
+                </button>
               </div>
-              <button onClick={() => handleDelete(token.id)} class="delete-btn">
-                Revoke
-              </button>
-            </div>
-          ))
+            ))
         )}
       </div>
     </div>

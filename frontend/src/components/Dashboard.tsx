@@ -1,3 +1,5 @@
+import { useState } from 'preact/hooks'
+import { ProjectSelector } from './ProjectSelector'
 import { TokenManager } from './TokenManager'
 import { DocManager } from './DocManager'
 import { CurlGuide } from './CurlGuide'
@@ -15,6 +17,8 @@ type Props = {
 }
 
 export function Dashboard({ user, onLogout }: Props) {
+  const [projectId, setProjectId] = useState<string | null>(null)
+
   const handleLogout = () => {
     localStorage.removeItem('token')
     onLogout()
@@ -38,6 +42,11 @@ export function Dashboard({ user, onLogout }: Props) {
             </svg>
             <h1>json-drop</h1>
           </div>
+
+          <div class="header-center">
+            <ProjectSelector projectId={projectId} onChange={setProjectId} />
+          </div>
+
           <div class="user-info">
             <span class="user-name">{user.display_name || user.github_id}</span>
             <button onClick={handleLogout} class="logout-btn">
@@ -48,13 +57,25 @@ export function Dashboard({ user, onLogout }: Props) {
       </header>
 
       <main class="dashboard-container">
+        <div class="project-context">
+          <div class="project-context-title">
+            {projectId ? 'Project Database' : 'Global Database'}
+          </div>
+          <p class="project-context-help">
+            {projectId
+              ? 'Documents and tokens below are scoped to this project.'
+              : 'Documents and tokens below are stored in your global scope.'}
+          </p>
+        </div>
+
         <div class="dashboard-grid">
           <div class="dashboard-left">
             <section class="section">
               <div class="section-header">
                 <h2>Documents</h2>
+                <span class="badge">{projectId ? 'project' : 'global'}</span>
               </div>
-              <DocManager />
+              <DocManager projectId={projectId} />
             </section>
           </div>
 
@@ -62,14 +83,15 @@ export function Dashboard({ user, onLogout }: Props) {
             <section class="section">
               <div class="section-header">
                 <h2>API Tokens</h2>
+                <span class="badge">{projectId ? 'project' : 'global'}</span>
               </div>
-              <TokenManager />
+              <TokenManager projectId={projectId} />
             </section>
           </div>
         </div>
 
         <section class="section guide-section">
-          <CurlGuide />
+          <CurlGuide projectId={projectId} />
         </section>
       </main>
     </div>
