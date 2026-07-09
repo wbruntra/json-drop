@@ -11,6 +11,11 @@ type Token = {
   created_at: string
 }
 
+type Project = {
+  id: string
+  name: string
+}
+
 type Props = {
   projectId: string | null
 }
@@ -36,6 +41,7 @@ const SESSION_BADGE = {
 
 export function TokenManager({ projectId }: Props) {
   const [tokens, setTokens] = useState<Token[]>([])
+  const [projects, setProjects] = useState<Map<string, string>>(new Map())
   const [newName, setNewName] = useState('')
   const [newPermissions, setNewPermissions] = useState('read_write')
   const [loading, setLoading] = useState(true)
@@ -45,14 +51,18 @@ export function TokenManager({ projectId }: Props) {
 
   const sessionToken = getToken()
 
-  const fetchTokens = async () => {
-    const res = await api('/api/tokens')
-    if (res.ok) setTokens(await res.json())
+  const fetchData = async () => {
+    const [tokenRes, projRes] = await Promise.all([api('/api/tokens'), api('/api/projects')])
+    if (tokenRes.ok) setTokens(await tokenRes.json())
+    if (projRes.ok) {
+      const list: Project[] = await projRes.json()
+      setProjects(new Map(list.map((p) => [p.id, p.name])))
+    }
     setLoading(false)
   }
 
   useEffect(() => {
-    fetchTokens()
+    fetchData()
   }, [])
 
   const handleCreate = async () => {
@@ -75,7 +85,7 @@ export function TokenManager({ projectId }: Props) {
     setCreating(false)
     if (res.ok) {
       setNewName('')
-      fetchTokens()
+      fetchData()
     } else {
       const data = await res.json().catch(() => ({}))
       setError(data.error || 'Failed to create token')
@@ -85,7 +95,7 @@ export function TokenManager({ projectId }: Props) {
   const handleDelete = async (id: number) => {
     if (!confirm('Revoke this token? Apps using it will lose access immediately.')) return
     const res = await api(`/api/tokens/${id}`, { method: 'DELETE' })
-    if (res.ok) fetchTokens()
+    if (res.ok) fetchData()
   }
 
   if (loading) return <div>Loading tokens...</div>
@@ -155,9 +165,13 @@ export function TokenManager({ projectId }: Props) {
                   >
                     <strong>{token.name}</strong>
                     <span class={`permissions ${token.permissions}`}>{token.permissions}</span>
-                    <span style={token.project_id ? SCOPE_BADGE : SCOPE_BADGE}>
-                      {token.project_id ? `Project` : 'Global'}
-                    </span>
+                    {token.project_id ? (
+                      <span style={SCOPE_BADGE}>
+                        {projects.get(token.project_id) || token.project_id}
+                      </span>
+                    ) : (
+                      <span style={SCOPE_BADGE}>Global</span>
+                    )}
                     {isSession && <span style={SESSION_BADGE}>Current session</span>}
                   </div>
                   <div class="token-row" style={{ marginTop: '0.4rem' }}>
