@@ -45,7 +45,8 @@ describe('Authentication', () => {
     const res = await fetch(`${baseUrl}/api/me`)
     expect(res.status).toBe(401)
     const data = await res.json()
-    expect(data.error).toBe('Not authenticated')
+    expect(data.code).toBe('unauthenticated')
+    expect(data.message).toBe('Not authenticated')
   })
 
   test('GET /api/me returns user with valid token', async () => {
@@ -247,7 +248,8 @@ describe('Documents', () => {
 
     expect(res.status).toBe(400)
     const data = await res.json()
-    expect(data.error).toContain('Path segments contain invalid')
+    expect(data.code).toBe('bad_request')
+    expect(data.message).toContain('Path segments contain invalid')
   })
 
   test('DELETE /api/docs/{id} deletes document as owner', async () => {
@@ -385,7 +387,8 @@ describe('Documents', () => {
 
     expect(res.status).toBe(413)
     const data = await res.json()
-    expect(data.error).toContain('max size')
+    expect(data.code).toBe('storage_limit')
+    expect(data.message).toContain('max size')
   })
 
   test('Rejects when total storage would exceed 10MB', async () => {
@@ -412,6 +415,96 @@ describe('Documents', () => {
 
     expect(res.status).toBe(413)
     const data = await res.json()
-    expect(data.error).toContain('Total storage')
+    expect(data.code).toBe('storage_limit')
+    expect(data.message).toContain('Total storage')
+  })
+})
+
+describe('Optimistic concurrency', () => {
+  test('PUT with matching If-Match succeeds and bumps version', async () => {
+    const putRes = await fetch(`${baseUrl}/api/docs/concur/doc`, {
+      method: 'PUT',
+      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { v: 1 } }),
+    })
+    expect(putRes.status).toBe(201)
+    const created = await putRes.json()
+    expect(created.version).toBe(1)
+
+    const updateRes = await fetch(`${baseUrl}/api/docs/concur/doc`, {
+      method: 'PUT',
+      headers: {
+        ...authHeader(adminToken),
+        'Content-Type': 'application/json',
+        'If-Match': '1',
+      },
+      body: JSON.stringify({ content: { v: 2 } }),
+    })
+    expect(updateRes.status).toBe(200)
+    const updated = await updateRes.json()
+    expect(updated.version).toBe(2)
+  })
+
+  test('PUT with stale If-Match returns 409 conflict with code', async () => {
+    const putRes = await fetch(`${baseUrl}/api/docs/concur/stale`, {
+      method: 'PUT',
+      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { v: 1 } }),
+    })
+    const created = await putRes.json()
+
+    // Second write bumps version to 2 (no If-Match).
+    await fetch(`${baseUrl}/api/docs/concur/stale`, {
+      method: 'PUT',
+      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { v: 2 } }),
+    })
+
+    // Third write with the stale version 1 -> 409.
+    const res = await fetch(`${baseUrl}/api/docs/concur/stale`, {
+      method: 'PUT',
+      headers: {
+        ...authHeader(adminToken),
+        'Content-Type': 'application/json',
+        'If-Match': String(created.version),
+      },
+      body: JSON.stringify({ content: { v: 3 } }),
+    })
+    expect(res.status).toBe(409)
+    const data = await res.json()
+    expect(data.code).toBe('conflict')
+    expect(data.expected).toBe(1)
+    expect(data.actual).toBe(2)
+  })
+
+  test('DELETE by path with stale If-Match returns 409', async () => {
+    await fetch(`${baseUrl}/api/docs/concur/delpath`, {
+      method: 'PUT',
+      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { v: 1 } }),
+    })
+    await fetch(`${baseUrl}/api/docs/concur/delpath`, {
+      method: 'PUT',
+      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { v: 2 } }),
+    })
+
+    const res = await fetch(`${baseUrl}/api/docs?path=concur/delpath`, {
+      method: 'DELETE',
+      headers: { ...authHeader(adminToken), 'If-Match': '1' },
+    })
+    expect(res.status).toBe(409)
+    const data = await res.json()
+    expect(data.code).toBe('conflict')
+  })
+
+  test('list emits prefix echo and order', async () => {
+    const res = await fetch(`${baseUrl}/api/docs?prefix=notes`, {
+      headers: authHeader(adminToken),
+    })
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.prefix).toBe('notes')
+    expect(data.order).toBe('path_asc')
   })
 })

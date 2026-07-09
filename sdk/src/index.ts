@@ -7,6 +7,7 @@ export type Doc = {
   access_mode: AccessMode
   content: unknown
   size_bytes: number
+  version: number
   created_at: string
   updated_at: string
 }
@@ -28,20 +29,44 @@ export type CreateProjectResult = Project
 
 export type ListDocsResult = {
   prefix: string | null
+  order: string
   docs: Doc[]
   storage: { used_bytes: number; used: string; limit: string }
 }
 
-export type CreateDocResult = Doc & { access_secret?: string; message?: string }
+export type CreateDocResult = Doc & { access_secret?: string; message?: string; ref?: DocRef }
+
+export type ErrorCode =
+  | 'bad_request'
+  | 'unauthenticated'
+  | 'forbidden'
+  | 'not_found'
+  | 'conflict'
+  | 'storage_limit'
+  | 'rate_limited'
+  | 'server'
+
+const STATUS_TO_CODE: Record<number, ErrorCode> = {
+  400: 'bad_request',
+  401: 'unauthenticated',
+  403: 'forbidden',
+  404: 'not_found',
+  409: 'conflict',
+  413: 'storage_limit',
+  429: 'rate_limited',
+  500: 'server',
+}
 
 export class JsonDropError extends Error {
   readonly status: number
+  readonly code: ErrorCode
   readonly body: unknown
 
-  constructor(status: number, message: string, body?: unknown) {
+  constructor(status: number, message: string, code: ErrorCode, body?: unknown) {
     super(message)
     this.name = 'JsonDropError'
     this.status = status
+    this.code = code
     this.body = body
   }
 }
@@ -93,8 +118,19 @@ export class JsonDrop {
     }
   }
 
-  me(): Promise<Me> {
-    return this.request<Me>('/api/me', { method: 'GET' })
+  /**
+   * Returns the authenticated user, or `null` when no token / an invalid
+   * token is configured. Other errors (network, server, rate limit) still
+   * throw. Use this in guest-capable frontends so a page load doesn't
+   * require a try/catch just to know "am I logged in?".
+   */
+  async me(): Promise<Me | null> {
+    try {
+      return await this.request<Me>('/api/me', { method: 'GET' })
+    } catch (e) {
+      if (e instanceof JsonDropError && e.code === 'unauthenticated') return null
+      throw e
+    }
   }
 
   collection(name: string): CollectionRef {
@@ -121,7 +157,7 @@ export class JsonDrop {
     return this.defaultSecret
   }
 
-  async request<T>(path: string, opts: RequestOptions): Promise<T> {
+  async request<T>(path: string, opts: RequestOptions & { ifMatch?: number }): Promise<T> {
     const url = new URL(this.baseUrl + path)
     const query: Record<string, string | number | undefined | null> = { ...(opts.query ?? {}) }
 
@@ -142,6 +178,7 @@ export class JsonDrop {
     const headers: Record<string, string> = {}
     if (this.token) headers.Authorization = `Bearer ${this.token}`
     if (opts.body !== undefined) headers['Content-Type'] = 'application/json'
+    if (opts.ifMatch !== undefined) headers['If-Match'] = String(opts.ifMatch)
 
     const res = await this.fetchImpl(url.toString(), {
       method: opts.method,
@@ -160,11 +197,17 @@ export class JsonDrop {
     }
 
     if (!res.ok) {
+      const bodyObj = body && typeof body === 'object' ? (body as Record<string, unknown>) : null
       const message =
-        body && typeof body === 'object' && 'error' in body
-          ? String((body as { error: unknown }).error)
-          : res.statusText || `HTTP ${res.status}`
-      throw new JsonDropError(res.status, message, body)
+        (bodyObj && typeof bodyObj.message === 'string' && bodyObj.message) ||
+        (bodyObj && typeof bodyObj.error === 'string' && bodyObj.error) ||
+        res.statusText ||
+        `HTTP ${res.status}`
+      const code: ErrorCode =
+        (bodyObj && typeof bodyObj.code === 'string'
+          ? (bodyObj.code as ErrorCode)
+          : STATUS_TO_CODE[res.status]) ?? 'server'
+      throw new JsonDropError(res.status, message, code, body)
     }
 
     return body as T
@@ -174,6 +217,7 @@ export class JsonDrop {
 type WriteOptions = {
   accessMode?: AccessMode
   secret?: string
+  ifMatch?: number
 }
 
 export class CollectionRef {
@@ -183,7 +227,7 @@ export class CollectionRef {
   ) {}
 
   async add(content: unknown, opts: WriteOptions = {}): Promise<CreateDocResult> {
-    return this.db.request<CreateDocResult>(`/api/docs/${this.name}`, {
+    const result = await this.db.request<CreateDocResult>(`/api/docs/${this.name}`, {
       method: 'POST',
       body: {
         content,
@@ -191,6 +235,7 @@ export class CollectionRef {
       },
       secret: opts.secret,
     })
+    return { ...result, ref: this.db.doc(result.path) }
   }
 
   async list(opts: { prefix?: string } = {}): Promise<ListDocsResult> {
@@ -212,14 +257,16 @@ export class DocRef {
   ) {}
 
   async set(content: unknown, opts: WriteOptions = {}): Promise<CreateDocResult> {
-    return this.db.request<CreateDocResult>(`/api/docs/${this.path}`, {
+    const result = await this.db.request<CreateDocResult>(`/api/docs/${this.path}`, {
       method: 'PUT',
       body: {
         content,
         access_mode: opts.accessMode ?? 'public',
       },
       secret: opts.secret,
+      ifMatch: opts.ifMatch,
     })
+    return { ...result, ref: this.db.doc(result.path) }
   }
 
   async get(opts: { secret?: string } = {}): Promise<Doc> {
@@ -230,11 +277,12 @@ export class DocRef {
     })
   }
 
-  async delete(opts: { secret?: string } = {}): Promise<{ deleted: true }> {
+  async delete(opts: { secret?: string; ifMatch?: number } = {}): Promise<{ deleted: true }> {
     return this.db.request<{ deleted: true }>('/api/docs', {
       method: 'DELETE',
       query: { path: this.path },
       secret: opts.secret ?? this.db.getDefaultSecret(),
+      ifMatch: opts.ifMatch,
     })
   }
 }
@@ -249,7 +297,10 @@ export class IdRef {
     return this.db.request<Doc>(`/api/docs/${this.id}`, { method: 'GET' })
   }
 
-  async delete(): Promise<{ deleted: true }> {
-    return this.db.request<{ deleted: true }>(`/api/docs/${this.id}`, { method: 'DELETE' })
+  async delete(opts: { ifMatch?: number } = {}): Promise<{ deleted: true }> {
+    return this.db.request<{ deleted: true }>(`/api/docs/${this.id}`, {
+      method: 'DELETE',
+      ifMatch: opts.ifMatch,
+    })
   }
 }

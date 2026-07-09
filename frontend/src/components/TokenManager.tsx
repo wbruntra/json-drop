@@ -88,7 +88,7 @@ export function TokenManager({ projectId }: Props) {
       fetchData()
     } else {
       const data = await res.json().catch(() => ({}))
-      setError(data.error || 'Failed to create token')
+      setError(data.message || 'Failed to create token')
     }
   }
 

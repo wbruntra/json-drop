@@ -1,6 +1,7 @@
 import type { Context } from 'hono'
 import { createUser, createApiToken } from '../services'
 import { generateToken } from '../middleware'
+import { notFound } from './errors'
 
 async function createUserWithToken(): Promise<{ token: string }> {
   const mockGithubId = `dev-${Date.now()}`
@@ -22,7 +23,7 @@ async function createUserWithToken(): Promise<{ token: string }> {
 
 export async function handleDevLogin(c: Context): Promise<Response> {
   if (process.env.NODE_ENV !== 'development') {
-    return c.json({ error: 'Not available in production' }, 404)
+    return notFound(c, 'Not available in production')
   }
 
   const { token } = await createUserWithToken()
@@ -40,7 +41,7 @@ window.location.href = '/'
 
 export async function handleDevCreateToken(c: Context): Promise<Response> {
   if (process.env.NODE_ENV !== 'development') {
-    return c.json({ error: 'Not available in production' }, 404)
+    return notFound(c, 'Not available in production')
   }
 
   const { token } = await createUserWithToken()

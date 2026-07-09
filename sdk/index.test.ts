@@ -131,6 +131,80 @@ describe('JsonDrop SDK', () => {
     } catch (e) {
       expect(e).toBeInstanceOf(JsonDropError)
       expect((e as JsonDropError).status).toBe(404)
+      expect((e as JsonDropError).code).toBe('not_found')
     }
+  })
+
+  test('doc payloads include a version field that bumps on set', async () => {
+    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const ref = db.doc('ver/doc')
+    const created = await ref.set({ n: 1 })
+    expect(created.version).toBe(1)
+    const got = await ref.get()
+    expect(got.version).toBe(1)
+
+    await new Promise((r) => setTimeout(r, 10))
+    const updated = await ref.set({ n: 2 }, { ifMatch: 1 })
+    expect(updated.version).toBe(2)
+    const got2 = await ref.get()
+    expect(got2.version).toBe(2)
+  })
+
+  test('set() with stale ifMatch throws a conflict error', async () => {
+    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const ref = db.doc('ver/conflict')
+    await ref.set({ v: 1 })
+    await ref.set({ v: 2 }) // bumps to version 2
+
+    try {
+      await ref.set({ v: 3 }, { ifMatch: 1 })
+      throw new Error('expected to throw')
+    } catch (e) {
+      expect(e).toBeInstanceOf(JsonDropError)
+      expect((e as JsonDropError).status).toBe(409)
+      expect((e as JsonDropError).code).toBe('conflict')
+    }
+  })
+
+  test('delete() with stale ifMatch throws a conflict error', async () => {
+    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const ref = db.doc('ver/delconflict')
+    await ref.set({ v: 1 })
+    await ref.set({ v: 2 }) // version 2
+
+    try {
+      await ref.delete({ ifMatch: 1 })
+      throw new Error('expected to throw')
+    } catch (e) {
+      expect(e).toBeInstanceOf(JsonDropError)
+      expect((e as JsonDropError).code).toBe('conflict')
+    }
+  })
+
+  test('add() and set() return a bound ref that can read and delete', async () => {
+    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const notes = db.collection('notes')
+    const created = await notes.add({ title: 'hello' })
+    expect(created.ref).toBeDefined()
+    const got = await created.ref!.get()
+    expect((got.content as { title: string }).title).toBe('hello')
+    const del = await created.ref!.delete()
+    expect(del.deleted).toBe(true)
+  })
+
+  test('me() returns null in guest mode (no token)', async () => {
+    const db = new JsonDrop({ baseUrl })
+    const me = await db.me()
+    expect(me).toBeNull()
+  })
+
+  test('list() echoes the effective prefix', async () => {
+    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const notes = db.collection('expenses')
+    await notes.add({ name: 'Spain trip' })
+    const list = await notes.list()
+    expect(list.prefix).toBe('expenses')
+    expect(list.order).toBe('path_asc')
+    expect(list.docs.length).toBeGreaterThan(0)
   })
 })

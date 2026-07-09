@@ -55,7 +55,7 @@ export function createApp() {
         }
         return `ip:${c.req.header('CF-Connecting-IP') || c.req.header('X-Forwarded-For') || 'unknown'}`
       },
-      message: { error: 'Too many requests' },
+      message: { code: 'rate_limited', message: 'Too many requests' },
     }),
   )
   app.use('/api/*', authMiddleware)

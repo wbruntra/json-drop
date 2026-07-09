@@ -64,6 +64,7 @@ export async function upsertDocument(
         access_mode: accessMode,
         access_secret: accessSecret,
         size_bytes: sizeBytes,
+        version: sql`version + 1`,
         updated_at: sql`CURRENT_TIMESTAMP`,
       }),
     )

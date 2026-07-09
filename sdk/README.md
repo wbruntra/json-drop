@@ -68,6 +68,32 @@ const got = await alice.get()
 await alice.delete()
 ```
 
+## Optimistic concurrency
+
+Every doc carries a `version` integer that the server bumps on each write.
+Pass `ifMatch` to `set()` / `delete()` to make a write conditional on the
+version you last read — the server returns a `409 conflict` (surfaced as a
+`JsonDropError` with `code: 'conflict'`) when your view is stale. This is the
+load-modify-write safe path for shared files edited from multiple devices:
+
+```ts
+const ref = db.doc('shared/expenses-spain')
+const doc = await ref.get() // doc.version === 7
+// …modify doc.content in memory…
+try {
+  await ref.set(newContent, { ifMatch: doc.version })
+} catch (e) {
+  if (e instanceof JsonDropError && e.code === 'conflict') {
+    // re-read, merge, and retry
+  } else {
+    throw e
+  }
+}
+```
+
+Without `ifMatch`, `set()` is a blind overwrite (last-write-wins) — fine for a
+single editor, unsafe for concurrent editors. `Doc` always exposes `version`.
+
 ## Anonymous access
 
 You can read public documents without a token by passing a project id:
@@ -105,7 +131,9 @@ await secretDb.doc('logs/2025-01').set({ entries: [] })
 
 ### `db.me()`
 
-Returns the authenticated user.
+Returns the authenticated user, or `null` when no token (or an invalid token)
+is configured. In guest mode this lets a page render without a try/catch just
+to detect "am I logged in?". Network/server errors still throw.
 
 ### `db.projects`
 
@@ -115,17 +143,17 @@ Returns the authenticated user.
 
 ### `db.collection(name)`
 
-- `.add(content, { accessMode, secret })` — `POST /api/docs/{name}` with a server-generated id.
-- `.list({ prefix })` — `GET /api/docs?prefix=…` returning `{ docs, storage }`.
+- `.add(content, { accessMode, secret })` — `POST /api/docs/{name}` with a server-generated id. Returns `{ ...doc, ref }` where `ref` is a bound `DocRef` you can `.get()` / `.set()` / `.delete()` without re-passing the path.
+- `.list({ prefix })` — `GET /api/docs?prefix=…` returning `{ prefix, order, docs, storage }`. `order` is `'path_asc'` (the documented server-side guarantee); `prefix` is the effective prefix echoed back, useful for grouping UIs.
 - `.doc(id)` — id-based ref to a child of this collection (uses `/api/docs/{id}`).
 
 ### `db.doc(path)`
 
 Path-addressed ref. **Path is the full document path, e.g. `'users/alice'`.**
 
-- `.set(content, { accessMode, secret })` — `PUT /api/docs/{path}`.
+- `.set(content, { accessMode, secret, ifMatch })` — `PUT /api/docs/{path}`. Returns `{ ...doc, ref }` (a bound `DocRef` to the same path). `ifMatch` enables optimistic concurrency (see above).
 - `.get({ secret })` — `GET /api/docs?path=…`.
-- `.delete({ secret })` — `DELETE /api/docs?path=…`.
+- `.delete({ secret, ifMatch })` — `DELETE /api/docs?path=…`. Accepts `ifMatch` for conditional delete.
 
 ### `db.get(id)` / `db.delete(id)`
 
@@ -141,7 +169,8 @@ Shortcuts for id-addressed reads and deletes.
 
 ## Errors
 
-All non-2xx responses throw a `JsonDropError`:
+All non-2xx responses throw a `JsonDropError` carrying a stable `code` (for
+`switch`), a human `message`, and the HTTP `status`:
 
 ```ts
 import { JsonDropError } from '@wbruntra/json-drop'
@@ -150,7 +179,19 @@ try {
   await db.doc('private/x').get()
 } catch (e) {
   if (e instanceof JsonDropError) {
-    console.error(e.status, e.message)
+    switch (e.code) {
+      case 'unauthenticated': // 401
+      case 'forbidden': // 403
+      case 'not_found': // 404
+      case 'conflict': // 409 — stale version, re-read & retry
+      case 'storage_limit': // 413
+      case 'rate_limited': // 429
+      case 'bad_request': // 400
+      case 'server': // 500
+    }
   }
 }
 ```
+
+`code` is derived server-side and is the recommended switch key; `message` is
+for humans only and may change between releases.

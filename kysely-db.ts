@@ -53,6 +53,7 @@ export type Document = {
   access_mode: string
   access_secret: string | null
   size_bytes: number
+  version: number
   created_at: string
   updated_at: string
 }

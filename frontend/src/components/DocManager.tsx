@@ -196,7 +196,7 @@ export function DocManager({ projectId }: Props) {
       fetchDocs()
     } else {
       const errData = await res.json().catch(() => ({}))
-      alert(errData.error || 'Failed to save document')
+      alert(errData.message || 'Failed to save document')
     }
   }
 
@@ -208,7 +208,7 @@ export function DocManager({ projectId }: Props) {
       fetchDocs()
     } else {
       const errData = await res.json().catch(() => ({}))
-      alert(errData.error || 'Failed to delete document')
+      alert(errData.message || 'Failed to delete document')
     }
   }
 

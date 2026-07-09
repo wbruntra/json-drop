@@ -62,7 +62,7 @@ export function ProjectSelector({ projectId, onChange }: Props) {
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      setError(data.error || 'Failed to create project')
+      setError(data.message || 'Failed to create project')
       return
     }
 
@@ -80,7 +80,7 @@ export function ProjectSelector({ projectId, onChange }: Props) {
     const res = await api(`/api/projects/${id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      setError(data.error || 'Failed to delete project')
+      setError(data.message || 'Failed to delete project')
       return
     }
 

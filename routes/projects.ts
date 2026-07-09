@@ -1,17 +1,18 @@
 import type { Context } from 'hono'
 import { createProject, listProjects, getProject, deleteProject } from '../services'
 import { createProjectSchema, formatZodError } from '../schemas'
+import { badRequest, unauthenticated, forbidden, notFound } from './errors'
 
 export async function handleCreateProject(c: Context): Promise<Response> {
   const auth = c.get('auth')
   if (!auth.user) {
-    return c.json({ error: 'Not authenticated' }, 401)
+    return unauthenticated(c)
   }
 
   const rawBody = await c.req.json().catch(() => ({}))
   const parsed = createProjectSchema.safeParse(rawBody)
   if (!parsed.success) {
-    return c.json({ error: formatZodError(parsed.error) }, 400)
+    return badRequest(c, formatZodError(parsed.error))
   }
 
   const project = await createProject(auth.user.id, parsed.data.name)
@@ -29,7 +30,7 @@ export async function handleCreateProject(c: Context): Promise<Response> {
 export async function handleListProjects(c: Context): Promise<Response> {
   const auth = c.get('auth')
   if (!auth.user) {
-    return c.json({ error: 'Not authenticated' }, 401)
+    return unauthenticated(c)
   }
 
   const projects = await listProjects(auth.user.id)
@@ -46,22 +47,22 @@ export async function handleListProjects(c: Context): Promise<Response> {
 export async function handleDeleteProject(c: Context): Promise<Response> {
   const auth = c.get('auth')
   if (!auth.user || auth.tokenPermissions !== 'admin') {
-    return c.json({ error: 'Unauthorized' }, 401)
+    return unauthenticated(c, 'Unauthorized')
   }
 
   const id = c.req.param('id')!
 
   const existing = await getProject(id)
   if (!existing) {
-    return c.json({ error: 'Project not found' }, 404)
+    return notFound(c, 'Project not found')
   }
   if (existing.user_id !== auth.user.id) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
   }
 
   const deleted = await deleteProject(id, auth.user.id)
   if (!deleted) {
-    return c.json({ error: 'Project not found' }, 404)
+    return notFound(c, 'Project not found')
   }
 
   return c.json({ deleted: true })

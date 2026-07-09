@@ -15,6 +15,15 @@ import type { AuthContext } from '../services/auth'
 import type { DocScope } from '../services/documents'
 import { LIMITS } from '../limits'
 import { pathSchema, upsertDocSchema, formatZodError } from '../schemas'
+import {
+  badRequest,
+  unauthenticated,
+  forbidden,
+  notFound,
+  conflict,
+  storageLimit,
+  serverError,
+} from './errors'
 
 function contentSize(content: string): number {
   return new TextEncoder().encode(content).byteLength
@@ -60,6 +69,28 @@ function formatMb(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+function docPayload(d: {
+  id: string
+  path: string
+  access_mode: string
+  content: string
+  size_bytes: number
+  version: number
+  created_at: string
+  updated_at: string
+}) {
+  return {
+    id: d.id,
+    path: d.path,
+    access_mode: d.access_mode,
+    content: JSON.parse(d.content),
+    size_bytes: d.size_bytes,
+    version: d.version,
+    created_at: d.created_at,
+    updated_at: d.updated_at,
+  }
+}
+
 type ResolvedScope = {
   projectId: string | null
   ownerId: number | null
@@ -81,6 +112,21 @@ async function resolveScope(c: Context, auth: AuthContext): Promise<ResolvedScop
   return { projectId: null, ownerId: auth.user?.id ?? null }
 }
 
+function parseIfMatch(c: Context): number | undefined {
+  const header = c.req.header('If-Match')
+  if (!header) return undefined
+  const n = parseInt(header.trim(), 10)
+  return isNaN(n) ? undefined : n
+}
+
+function checkIfMatch(actual: number | undefined, expected: number | undefined): boolean {
+  // If caller supplied If-Match, it must equal the existing doc's version.
+  // When the doc doesn't exist (actual === undefined), a supplied If-Match is a
+  // precondition that fails (caller expected an existing version).
+  if (expected === undefined) return true
+  return actual !== undefined && actual === expected
+}
+
 async function handleSecretUpsert(
   c: Context,
   auth: AuthContext,
@@ -88,23 +134,26 @@ async function handleSecretUpsert(
   secret: string,
   content: string,
   size: number,
+  ifMatch: number | undefined,
 ): Promise<Response> {
   const doc = await getDocumentByPathAndSecret(path, secret)
   if (!doc) {
-    return c.json({ error: 'Document not found' }, 404)
+    return notFound(c, 'Document not found')
   }
 
   if (!canWrite(auth, doc, secret)) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
+  }
+
+  if (!checkIfMatch(doc.version, ifMatch)) {
+    return conflict(c, 'Version conflict', { expected: ifMatch, actual: doc.version })
   }
 
   const currentTotal = await getUserTotalSize(doc.user_id)
   if (currentTotal - doc.size_bytes + size > LIMITS.maxTotalSize) {
-    return c.json(
-      {
-        error: `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
-      },
-      413,
+    return storageLimit(
+      c,
+      `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
     )
   }
 
@@ -122,6 +171,7 @@ async function handleSecretUpsert(
     id: updated.id,
     path: updated.path,
     access_mode: updated.access_mode,
+    version: updated.version,
     size_bytes: updated.size_bytes,
     created_at: updated.created_at,
     updated_at: updated.updated_at,
@@ -134,12 +184,12 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
 
   const pathResult = pathSchema.safeParse(path)
   if (!pathResult.success) {
-    return c.json({ error: formatZodError(pathResult.error) }, 400)
+    return badRequest(c, formatZodError(pathResult.error))
   }
 
   const secret = c.req.query('secret') ?? null
   if (!auth.user && !secret) {
-    return c.json({ error: 'Not authenticated' }, 401)
+    return unauthenticated(c)
   }
 
   const scope = await resolveScope(c, auth)
@@ -149,30 +199,32 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
     auth.tokenPermissions &&
     !['write', 'read_write', 'admin'].includes(auth.tokenPermissions)
   ) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
   }
 
   // For writes, if a project is in scope, the caller must own it (or the token
   // must be project-scoped, in which case auth.projectId is already set).
   if (auth.user && scope.projectId && scope.ownerId !== auth.user.id) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
   }
 
   const rawBody = await c.req.json()
   const parsed = upsertDocSchema.safeParse(rawBody)
   if (!parsed.success) {
-    return c.json({ error: formatZodError(parsed.error) }, 400)
+    return badRequest(c, formatZodError(parsed.error))
   }
 
   const content = JSON.stringify(parsed.data.content)
 
   const size = contentSize(content)
   if (size > LIMITS.maxDocSize) {
-    return c.json({ error: `Document exceeds max size of ${formatMb(LIMITS.maxDocSize)}` }, 413)
+    return storageLimit(c, `Document exceeds max size of ${formatMb(LIMITS.maxDocSize)}`)
   }
 
+  const ifMatch = parseIfMatch(c)
+
   if (!auth.user) {
-    return handleSecretUpsert(c, auth, path, secret!, content, size)
+    return handleSecretUpsert(c, auth, path, secret!, content, size, ifMatch)
   }
 
   const accessMode = parsed.data.access_mode
@@ -181,14 +233,20 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
     { projectId: scope.projectId, userId: scope.ownerId },
     path,
   )
+
+  if (!checkIfMatch(existingDoc?.version, ifMatch)) {
+    return conflict(c, 'Version conflict', {
+      expected: ifMatch,
+      actual: existingDoc?.version,
+    })
+  }
+
   const currentTotal = await getUserTotalSize(auth.user.id)
   const sizeDiff = existingDoc ? size - existingDoc.size_bytes : size
   if (currentTotal + sizeDiff > LIMITS.maxTotalSize) {
-    return c.json(
-      {
-        error: `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
-      },
-      413,
+    return storageLimit(
+      c,
+      `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
     )
   }
 
@@ -220,6 +278,7 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
       path: doc.path,
       access_mode: doc.access_mode,
       access_secret: doc.access_secret,
+      version: doc.version,
       size_bytes: doc.size_bytes,
       created_at: doc.created_at,
       updated_at: doc.updated_at,
@@ -244,7 +303,7 @@ export async function handleListDocs(c: Context): Promise<Response> {
       auth.tokenPermissions &&
       !['read', 'read_write', 'admin'].includes(auth.tokenPermissions)
     ) {
-      return c.json({ error: 'Forbidden' }, 403)
+      return forbidden(c)
     }
 
     // For anonymous reads, scope.projectId can be set via ?project= but
@@ -254,34 +313,26 @@ export async function handleListDocs(c: Context): Promise<Response> {
     const docScope: DocScope = { projectId: scope.projectId, userId: scope.ownerId }
     const doc = await getDocumentByScopeAndPath(docScope, pathQuery)
     if (!doc) {
-      return c.json({ error: 'Document not found' }, 404)
+      return notFound(c, 'Document not found')
     }
     if (!canRead(auth, doc, secret)) {
-      return c.json({ error: 'Forbidden' }, 403)
+      return forbidden(c)
     }
 
-    return c.json({
-      id: doc.id,
-      path: doc.path,
-      access_mode: doc.access_mode,
-      content: JSON.parse(doc.content),
-      size_bytes: doc.size_bytes,
-      created_at: doc.created_at,
-      updated_at: doc.updated_at,
-    })
+    return c.json(docPayload(doc))
   }
 
   if (!auth.user) {
-    return c.json({ error: 'Not authenticated' }, 401)
+    return unauthenticated(c)
   }
   if (auth.tokenPermissions && !['read', 'read_write', 'admin'].includes(auth.tokenPermissions)) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
   }
 
   const prefix = c.req.query('prefix') || undefined
 
   if (scope.projectId && scope.ownerId !== auth.user.id) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
   }
 
   const docs = await listDocuments(auth.user.id, { projectId: scope.projectId, prefix })
@@ -289,15 +340,8 @@ export async function handleListDocs(c: Context): Promise<Response> {
 
   return c.json({
     prefix: prefix || null,
-    docs: docs.map((d) => ({
-      id: d.id,
-      path: d.path,
-      access_mode: d.access_mode,
-      content: JSON.parse(d.content),
-      size_bytes: d.size_bytes,
-      created_at: d.created_at,
-      updated_at: d.updated_at,
-    })),
+    order: 'path_asc',
+    docs: docs.map((d) => docPayload(d)),
     storage: {
       used_bytes: total,
       used: formatMb(total),
@@ -312,66 +356,56 @@ export async function handleGetDoc(c: Context): Promise<Response> {
 
   const doc = await getDocument(id)
   if (!doc) {
-    return c.json({ error: 'Document not found' }, 404)
+    return notFound(c, 'Document not found')
   }
 
   const secret = c.req.query('secret') ?? null
 
   if (!canRead(auth, doc, secret)) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
   }
 
-  return c.json({
-    id: doc.id,
-    path: doc.path,
-    access_mode: doc.access_mode,
-    content: JSON.parse(doc.content),
-    size_bytes: doc.size_bytes,
-    created_at: doc.created_at,
-    updated_at: doc.updated_at,
-  })
+  return c.json(docPayload(doc))
 }
 
 export async function handleCreateDoc(c: Context): Promise<Response> {
   const auth = c.get('auth')
   if (!auth.user) {
-    return c.json({ error: 'Not authenticated' }, 401)
+    return unauthenticated(c)
   }
 
   if (auth.tokenPermissions && !['write', 'read_write', 'admin'].includes(auth.tokenPermissions)) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
   }
 
   const collectionPath = c.req.param('path')!
   const pathResult = pathSchema.safeParse(collectionPath)
   if (!pathResult.success) {
-    return c.json({ error: formatZodError(pathResult.error) }, 400)
+    return badRequest(c, formatZodError(pathResult.error))
   }
 
   const scope = await resolveScope(c, auth)
   if (scope.projectId && scope.ownerId !== auth.user.id) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
   }
 
   const rawBody = await c.req.json()
   const parsed = upsertDocSchema.safeParse(rawBody)
   if (!parsed.success) {
-    return c.json({ error: formatZodError(parsed.error) }, 400)
+    return badRequest(c, formatZodError(parsed.error))
   }
 
   const content = JSON.stringify(parsed.data.content)
   const size = contentSize(content)
   if (size > LIMITS.maxDocSize) {
-    return c.json({ error: `Document exceeds max size of ${formatMb(LIMITS.maxDocSize)}` }, 413)
+    return storageLimit(c, `Document exceeds max size of ${formatMb(LIMITS.maxDocSize)}`)
   }
 
   const currentTotal = await getUserTotalSize(auth.user.id)
   if (currentTotal + size > LIMITS.maxTotalSize) {
-    return c.json(
-      {
-        error: `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
-      },
-      413,
+    return storageLimit(
+      c,
+      `Total storage would exceed ${formatMb(LIMITS.maxTotalSize)} (using ${formatMb(currentTotal)})`,
     )
   }
 
@@ -395,6 +429,7 @@ export async function handleCreateDoc(c: Context): Promise<Response> {
       path: doc.path,
       access_mode: doc.access_mode,
       access_secret: doc.access_secret,
+      version: doc.version,
       size_bytes: doc.size_bytes,
       created_at: doc.created_at,
       updated_at: doc.updated_at,
@@ -409,27 +444,32 @@ export async function handleCreateDoc(c: Context): Promise<Response> {
 export async function handleDeleteDoc(c: Context): Promise<Response> {
   const auth = c.get('auth')
   if (!auth.user) {
-    return c.json({ error: 'Not authenticated' }, 401)
+    return unauthenticated(c)
   }
 
   if (auth.tokenPermissions && !['write', 'read_write', 'admin'].includes(auth.tokenPermissions)) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
   }
 
   const id = c.req.param('path')!
 
   const doc = await getDocument(id)
   if (!doc) {
-    return c.json({ error: 'Document not found' }, 404)
+    return notFound(c, 'Document not found')
   }
 
   if (auth.user.id !== doc.user_id) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
+  }
+
+  const ifMatch = parseIfMatch(c)
+  if (!checkIfMatch(doc.version, ifMatch)) {
+    return conflict(c, 'Version conflict', { expected: ifMatch, actual: doc.version })
   }
 
   const deleted = await deleteDocument(id, auth.user.id)
   if (!deleted) {
-    return c.json({ error: 'Delete failed' }, 500)
+    return serverError(c, 'Delete failed')
   }
 
   return c.json({ deleted: true })
@@ -438,21 +478,35 @@ export async function handleDeleteDoc(c: Context): Promise<Response> {
 export async function handleDeleteByPath(c: Context): Promise<Response> {
   const auth = c.get('auth')
   if (!auth.user) {
-    return c.json({ error: 'Not authenticated' }, 401)
+    return unauthenticated(c)
   }
 
   if (auth.tokenPermissions && !['write', 'read_write', 'admin'].includes(auth.tokenPermissions)) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
   }
 
   const path = c.req.query('path')
   if (!path) {
-    return c.json({ error: 'Missing ?path= query' }, 400)
+    return badRequest(c, 'Missing ?path= query')
   }
 
   const scope = await resolveScope(c, auth)
   if (scope.projectId && scope.ownerId !== auth.user.id) {
-    return c.json({ error: 'Forbidden' }, 403)
+    return forbidden(c)
+  }
+
+  const ifMatch = parseIfMatch(c)
+  if (ifMatch !== undefined) {
+    const existing = await getDocumentByScopeAndPath(
+      { projectId: scope.projectId, userId: scope.ownerId },
+      path,
+    )
+    if (!existing) {
+      return notFound(c, 'Document not found')
+    }
+    if (!checkIfMatch(existing.version, ifMatch)) {
+      return conflict(c, 'Version conflict', { expected: ifMatch, actual: existing.version })
+    }
   }
 
   const deleted = await deleteDocumentByScopeAndPath(
@@ -460,7 +514,7 @@ export async function handleDeleteByPath(c: Context): Promise<Response> {
     path,
   )
   if (!deleted) {
-    return c.json({ error: 'Document not found' }, 404)
+    return notFound(c, 'Document not found')
   }
 
   return c.json({ deleted: true })

@@ -2,27 +2,28 @@ import type { Context } from 'hono'
 import { generateToken } from '../middleware'
 import { createApiToken, listApiTokens, revokeApiToken, getProject } from '../services'
 import { createTokenSchema, formatZodError } from '../schemas'
+import { badRequest, unauthenticated, forbidden, notFound } from './errors'
 
 export async function handleCreateToken(c: Context): Promise<Response> {
   const auth = c.get('auth')
   if (!auth.user || auth.tokenPermissions !== 'admin') {
-    return c.json({ error: 'Unauthorized' }, 401)
+    return unauthenticated(c, 'Unauthorized')
   }
 
   const rawBody = await c.req.json()
   const parsed = createTokenSchema.safeParse(rawBody)
   if (!parsed.success) {
-    return c.json({ error: formatZodError(parsed.error) }, 400)
+    return badRequest(c, formatZodError(parsed.error))
   }
 
   let projectId: string | null = null
   if (parsed.data.project_id) {
     const project = await getProject(parsed.data.project_id)
     if (!project) {
-      return c.json({ error: 'Project not found' }, 404)
+      return notFound(c, 'Project not found')
     }
     if (project.user_id !== auth.user.id) {
-      return c.json({ error: 'Forbidden' }, 403)
+      return forbidden(c)
     }
     projectId = project.id
   }
@@ -52,7 +53,7 @@ export async function handleCreateToken(c: Context): Promise<Response> {
 export async function handleListTokens(c: Context): Promise<Response> {
   const auth = c.get('auth')
   if (!auth.user) {
-    return c.json({ error: 'Not authenticated' }, 401)
+    return unauthenticated(c)
   }
 
   const tokens = await listApiTokens(auth.user.id)
@@ -72,17 +73,17 @@ export async function handleListTokens(c: Context): Promise<Response> {
 export async function handleDeleteToken(c: Context): Promise<Response> {
   const auth = c.get('auth')
   if (!auth.user || auth.tokenPermissions !== 'admin') {
-    return c.json({ error: 'Unauthorized' }, 401)
+    return unauthenticated(c, 'Unauthorized')
   }
 
   const id = parseInt(c.req.param('id')!, 10)
   if (isNaN(id)) {
-    return c.json({ error: 'Invalid token ID' }, 400)
+    return badRequest(c, 'Invalid token ID')
   }
 
   const deleted = await revokeApiToken(id, auth.user.id)
   if (!deleted) {
-    return c.json({ error: 'Token not found' }, 404)
+    return notFound(c, 'Token not found')
   }
 
   return c.json({ deleted: true })

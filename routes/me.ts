@@ -1,9 +1,10 @@
 import type { Context } from 'hono'
+import { unauthenticated } from './errors'
 
 export function handleMe(c: Context): Response {
   const auth = c.get('auth')
   if (!auth.user) {
-    return c.json({ error: 'Not authenticated' }, 401)
+    return unauthenticated(c)
   }
 
   return c.json({
