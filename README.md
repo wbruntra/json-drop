@@ -150,14 +150,18 @@ Anonymous clients can also read public documents inside a project by adding `?pr
 
 ## JavaScript SDK
 
-For frontend apps, install the official SDK:
+For frontend apps, install the official SDK from **GitHub Packages**:
 
 ```bash
-bun add json-drop     # or: npm install json-drop
+bun add @wbruntra/json-drop     # or: npm install @wbruntra/json-drop
 ```
 
+Consumers must point the `@wbruntra` scope at GitHub Packages and authenticate
+with a PAT (`read:packages` scope). See [`sdk/README.md`](./sdk/README.md) for
+the one-time `.npmrc` setup. Then:
+
 ```ts
-import { JsonDrop } from 'json-drop'
+import { JsonDrop } from '@wbruntra/json-drop'
 
 const db = new JsonDrop({
   baseUrl: 'https://your-jsondrop-server.com',

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks'
-import { getExampleToken } from '../api'
+import { getToken } from '../api'
 
 type Props = {
   projectId: string | null
@@ -11,7 +11,7 @@ export function CurlGuide({ projectId }: Props) {
   const [docId] = useState('abc123')
   const [secret] = useState('your-secret-here')
   const [exampleProjectId] = useState('proj_abc')
-  const token = getExampleToken() || '${YOUR_API_TOKEN}'
+  const token = getToken() || '${YOUR_API_TOKEN}'
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
 

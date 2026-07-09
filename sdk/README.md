@@ -1,19 +1,49 @@
 # json-drop SDK
 
-Firebase-style JavaScript SDK for [json-drop](https://github.com/anomalyco/json-drop). Store arbitrary JSON documents from any frontend using a bearer token, a project id, or a public/secret access mode.
+Firebase-style JavaScript SDK for [json-drop](https://github.com/wbruntra/json-drop). Store arbitrary JSON documents from any frontend using a bearer token, a project id, or a public/secret access mode.
 
 ## Install
 
+This package is published to **GitHub Packages**, not the public npm registry.
+It is scoped to `@wbruntra`, so consumers must point that scope at GitHub Packages
+and authenticate with a GitHub Personal Access Token (PAT) that has at least the
+`read:packages` scope.
+
+### One-time setup (in the project that will use the SDK)
+
+Create an `.npmrc` file in that project (or in `~/.npmrc` for global use):
+
+```ini
+@wbruntra:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+always-auth=true
+```
+
+Then export a PAT with `read:packages` scope as `GITHUB_TOKEN` in your shell
+(or CI secrets):
+
 ```bash
-bun add json-drop
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+```
+
+### Install
+
+```bash
+bun add @wbruntra/json-drop
 # or
-npm install json-drop
+npm install @wbruntra/json-drop
+```
+
+Then import from the scoped name:
+
+```ts
+import { JsonDrop } from '@wbruntra/json-drop'
 ```
 
 ## Quick start
 
 ```ts
-import { JsonDrop } from 'json-drop'
+import { JsonDrop } from '@wbruntra/json-drop'
 
 const db = new JsonDrop({
   baseUrl: 'https://your-jsondrop-server.com',
@@ -114,7 +144,7 @@ Shortcuts for id-addressed reads and deletes.
 All non-2xx responses throw a `JsonDropError`:
 
 ```ts
-import { JsonDropError } from 'json-drop'
+import { JsonDropError } from '@wbruntra/json-drop'
 
 try {
   await db.doc('private/x').get()

@@ -21,6 +21,10 @@ console.log('projects', projects)
 //   .set({ time: new Date().toISOString() }, { accessMode: 'public' })
 // console.log('doc', doc)
 
-const savedDoc = await db.doc('checkins').get('tG3W6jgnDanfmuQjbkzfo1')
+// const savedDoc = await db.doc('checkins').get()
 
-console.log('savedDoc', savedDoc)
+// console.log('savedDoc', savedDoc)
+
+await db.collection('checkins').add({ time: new Date().toISOString() })
+const { docs } = await db.collection('checkins').list()
+console.log(docs)

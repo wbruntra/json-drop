@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'preact/hooks'
-import { api, storeCreatedToken, getCreatedTokens } from '../api'
+import { api, getToken } from '../api'
+import { useCopy } from '../useCopy'
 
 type Token = {
   id: number
   name: string
+  token: string
   permissions: string
   project_id: string | null
   created_at: string
@@ -13,91 +15,104 @@ type Props = {
   projectId: string | null
 }
 
+const SCOPE_BADGE = {
+  fontSize: '0.65rem',
+  fontWeight: '700',
+  letterSpacing: '0.05em',
+  textTransform: 'uppercase' as const,
+  padding: '0.15rem 0.4rem',
+  borderRadius: '4px',
+  border: '1px solid var(--border)',
+  color: 'var(--text-secondary)',
+  background: 'var(--bg-tertiary)',
+}
+
+const SESSION_BADGE = {
+  ...SCOPE_BADGE,
+  color: 'var(--success-text)',
+  background: 'var(--success-bg)',
+  borderColor: 'var(--success-border)',
+}
+
 export function TokenManager({ projectId }: Props) {
   const [tokens, setTokens] = useState<Token[]>([])
+  const [newName, setNewName] = useState('')
   const [newPermissions, setNewPermissions] = useState('read_write')
-  const [createdToken, setCreatedToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const { copiedId, copy } = useCopy()
+
+  const sessionToken = getToken()
 
   const fetchTokens = async () => {
     const res = await api('/api/tokens')
-    if (res.ok) {
-      const data = await res.json()
-      setTokens(data)
-    }
+    if (res.ok) setTokens(await res.json())
     setLoading(false)
   }
 
   useEffect(() => {
     fetchTokens()
-  }, [projectId])
+  }, [])
 
   const handleCreate = async () => {
+    const name = newName.trim()
+    if (!name) {
+      setError('Give the token a name so you can recognize it later.')
+      return
+    }
+    setCreating(true)
+    setError(null)
     const res = await api('/api/tokens', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        name,
         permissions: newPermissions,
         ...(projectId ? { project_id: projectId } : {}),
       }),
     })
-
+    setCreating(false)
     if (res.ok) {
-      const data = await res.json()
-      storeCreatedToken(data.token)
-      setCreatedToken(data.token)
+      setNewName('')
       fetchTokens()
+    } else {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error || 'Failed to create token')
     }
   }
 
   const handleDelete = async (id: number) => {
+    if (!confirm('Revoke this token? Apps using it will lose access immediately.')) return
     const res = await api(`/api/tokens/${id}`, { method: 'DELETE' })
-
-    if (res.ok) {
-      fetchTokens()
-    }
-  }
-
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text)
+    if (res.ok) fetchTokens()
   }
 
   if (loading) return <div>Loading tokens...</div>
 
-  const storedTokens = getCreatedTokens()
+  // Order: current session first, then tokens for this project, then the rest.
+  const sorted = [...tokens].sort((a, b) => {
+    const aSession = a.token === sessionToken ? 0 : 1
+    const bSession = b.token === sessionToken ? 0 : 1
+    if (aSession !== bSession) return aSession - bSession
+    const aProj = a.project_id === projectId ? 0 : 1
+    const bProj = b.project_id === projectId ? 0 : 1
+    if (aProj !== bProj) return aProj - bProj
+    return a.id - b.id
+  })
 
   return (
     <div class="token-manager">
-      {storedTokens.length > 0 && (
-        <div class="alert">
-          <p>
-            <strong>Your tokens</strong> — use these in API calls or the examples below.
-          </p>
-          {storedTokens.map((t, i) => (
-            <div key={i} class="token-row">
-              <code class="token-display">{t}</code>
-              <button onClick={() => copyToClipboard(t)} class="copy-btn">
-                Copy
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      {createdToken && !storedTokens.includes(createdToken) && (
-        <div class="alert">
-          <p>
-            <strong>New token created!</strong>
-          </p>
-          <div class="token-row">
-            <code class="token-display">{createdToken}</code>
-            <button onClick={() => copyToClipboard(createdToken)} class="copy-btn">
-              Copy
-            </button>
-          </div>
-        </div>
-      )}
-
       <div class="create-token">
+        <input
+          type="text"
+          placeholder="Token name (e.g. frontend-app)"
+          value={newName}
+          onInput={(e) => setNewName((e.target as HTMLInputElement).value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleCreate()
+          }}
+        />
         <select
           value={newPermissions}
           onChange={(e) => setNewPermissions((e.target as HTMLSelectElement).value)}
@@ -105,20 +120,29 @@ export function TokenManager({ projectId }: Props) {
           <option value="read">Read</option>
           <option value="write">Write</option>
           <option value="read_write">Read/Write</option>
-          <option value="admin">Admin</option>
         </select>
-        <button onClick={handleCreate} class="create-btn">
-          Create Token
+        <button class="create-btn" onClick={handleCreate} disabled={creating}>
+          {creating ? 'Creating...' : 'Create Token'}
         </button>
       </div>
+      {error && <span class="project-selector-error">{error}</span>}
+      <p
+        class="empty"
+        style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}
+      >
+        New token will be scoped to{' '}
+        <strong>{projectId ? 'this project' : 'your global scope'}</strong>. Copy it from the list
+        below — it is stored on the server, not in your browser.
+      </p>
 
       <div class="token-list">
-        {tokens.filter((t) => t.project_id === projectId).length === 0 ? (
+        {sorted.length === 0 ? (
           <p class="empty">No tokens yet. Create one above.</p>
         ) : (
-          tokens
-            .filter((t) => t.project_id === projectId)
-            .map((token) => (
+          sorted.map((token) => {
+            const isSession = token.token === sessionToken
+            const copyId = `tok-${token.id}`
+            return (
               <div key={token.id} class="token-item">
                 <div class="token-info">
                   <div
@@ -129,20 +153,31 @@ export function TokenManager({ projectId }: Props) {
                       flexWrap: 'wrap',
                     }}
                   >
-                    <span class="permissions">{token.permissions}</span>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      {token.project_id ? `Project Scope` : 'Global Scope'}
+                    <strong>{token.name}</strong>
+                    <span class={`permissions ${token.permissions}`}>{token.permissions}</span>
+                    <span style={token.project_id ? SCOPE_BADGE : SCOPE_BADGE}>
+                      {token.project_id ? `Project` : 'Global'}
                     </span>
+                    {isSession && <span style={SESSION_BADGE}>Current session</span>}
+                  </div>
+                  <div class="token-row" style={{ marginTop: '0.4rem' }}>
+                    <code class="token-display">{token.token}</code>
+                    <button onClick={() => copy(token.token, copyId)} class="copy-btn">
+                      {copiedId === copyId ? 'Copied!' : 'Copy'}
+                    </button>
                   </div>
                   <span class="created">
-                    Created: {new Date(token.created_at).toLocaleDateString()}
+                    Created {new Date(token.created_at).toLocaleDateString()}
                   </span>
                 </div>
-                <button onClick={() => handleDelete(token.id)} class="delete-btn">
-                  Revoke
-                </button>
+                {!isSession && (
+                  <button onClick={() => handleDelete(token.id)} class="delete-btn">
+                    Revoke
+                  </button>
+                )}
               </div>
-            ))
+            )
+          })
         )}
       </div>
     </div>

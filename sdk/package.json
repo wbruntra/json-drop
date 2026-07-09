@@ -1,5 +1,5 @@
 {
-  "name": "json-drop",
+  "name": "@wbruntra/json-drop",
   "version": "0.1.0",
   "description": "Firebase-style JavaScript SDK for json-drop",
   "type": "module",
@@ -15,17 +15,40 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
+  "sideEffects": false,
   "scripts": {
     "build": "bun build src/index.ts --outdir dist --target browser --minify && tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "bun run clean && bun run build",
     "test": "bun test"
   },
   "keywords": [
     "json-drop",
     "database",
     "json",
-    "firebase"
+    "firebase",
+    "sdk",
+    "backendless",
+    "serverless"
   ],
-  "license": "MIT"
+  "author": "William Bruntrager",
+  "license": "MIT",
+  "homepage": "https://github.com/wbruntra/json-drop#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wbruntra/json-drop.git",
+    "directory": "sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/wbruntra/json-drop/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  }
 }

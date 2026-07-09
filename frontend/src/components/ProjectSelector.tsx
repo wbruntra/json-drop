@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'preact/hooks'
 import { api } from '../api'
+import { useCopy } from '../useCopy'
 
 export type Project = {
   id: string
@@ -21,6 +22,7 @@ export function ProjectSelector({ projectId, onChange }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [isCreating, setIsCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const { copiedId, copy } = useCopy()
 
   const fetchProjects = async () => {
     setLoading(true)
@@ -158,17 +160,17 @@ export function ProjectSelector({ projectId, onChange }: Props) {
             </code>
           </span>
           <button
-            onClick={() => navigator.clipboard.writeText(projectId)}
+            onClick={() => copy(projectId, 'proj-id')}
             style={{
               background: 'transparent',
               border: 'none',
-              color: 'var(--accent)',
+              color: copiedId === 'proj-id' ? 'var(--success)' : 'var(--accent)',
               cursor: 'pointer',
               padding: '0',
               display: 'inline-flex',
               alignItems: 'center',
             }}
-            title="Copy Project ID"
+            title={copiedId === 'proj-id' ? 'Copied!' : 'Copy Project ID'}
           >
             <svg
               viewBox="0 0 24 24"
