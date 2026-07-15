@@ -1592,3 +1592,150 @@ dialog.premium-modal::backdrop {
   font-size: 0.65rem;
   color: var(--text-muted);
 }
+
+/* --- View Tabs (Personal / Workspaces) --- */
+.view-tabs {
+  display: flex;
+  gap: 0.25rem;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.2rem;
+  margin: 0 auto 0.5rem;
+  width: fit-content;
+}
+
+.view-tab {
+  padding: 0.35rem 0.85rem;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.view-tab:hover {
+  color: var(--text-primary);
+}
+
+.view-tab.active {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+/* --- Workspaces --- */
+.workspace-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1.5rem;
+}
+
+@media (min-width: 900px) {
+  .workspace-layout {
+    grid-template-columns: 280px 1fr;
+    align-items: start;
+  }
+}
+
+.workspace-sidebar-section {
+  position: sticky;
+  top: 5.5rem;
+}
+
+.workspace-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-width: 0;
+}
+
+.workspace-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.workspace-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.workspace-item:hover {
+  border-color: var(--border-hover);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.workspace-item.active {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+.workspace-item-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.workspace-item-id {
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.workspace-join-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+/* --- Role badges --- */
+.role-badge {
+  align-self: flex-start;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+}
+
+.role-owner {
+  color: var(--warning-text);
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+}
+
+.role-admin {
+  color: var(--accent);
+  background: var(--accent-light);
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+.role-editor {
+  color: var(--success-text);
+  background: var(--success-bg);
+  border-color: var(--success-border);
+}
+
+.role-viewer {
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-color: var(--border);
+}

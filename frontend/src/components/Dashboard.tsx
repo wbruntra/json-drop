@@ -3,6 +3,7 @@ import { ProjectSelector } from './ProjectSelector'
 import { TokenManager } from './TokenManager'
 import { DocManager } from './DocManager'
 import { CurlGuide } from './CurlGuide'
+import { WorkspacesView } from './WorkspacesView'
 
 type User = {
   id: number
@@ -18,6 +19,7 @@ type Props = {
 
 export function Dashboard({ user, onLogout }: Props) {
   const [projectId, setProjectId] = useState<string | null>(null)
+  const [view, setView] = useState<'personal' | 'workspaces'>('personal')
 
   const handleLogout = () => {
     localStorage.removeItem('token')
@@ -44,7 +46,23 @@ export function Dashboard({ user, onLogout }: Props) {
           </div>
 
           <div class="header-center">
-            <ProjectSelector projectId={projectId} onChange={setProjectId} />
+            <div class="view-tabs">
+              <button
+                class={`view-tab ${view === 'personal' ? 'active' : ''}`}
+                onClick={() => setView('personal')}
+              >
+                Personal
+              </button>
+              <button
+                class={`view-tab ${view === 'workspaces' ? 'active' : ''}`}
+                onClick={() => setView('workspaces')}
+              >
+                Workspaces
+              </button>
+            </div>
+            {view === 'personal' && (
+              <ProjectSelector projectId={projectId} onChange={setProjectId} />
+            )}
           </div>
 
           <div class="user-info">
@@ -57,60 +75,66 @@ export function Dashboard({ user, onLogout }: Props) {
       </header>
 
       <main class="dashboard-container">
-        <div class="project-context">
-          <div
-            class="project-context-title"
-            style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}
-          >
-            <span>{projectId ? 'Project Database' : 'Global Database'}</span>
-            {projectId && (
-              <span
-                class="badge"
-                style={{
-                  fontFamily: 'var(--font-mono)',
-                  fontSize: '0.75rem',
-                  textTransform: 'none',
-                  background: 'var(--accent-light)',
-                  color: 'var(--accent)',
-                  border: '1px solid rgba(99, 102, 241, 0.2)',
-                }}
+        {view === 'workspaces' ? (
+          <WorkspacesView user={user} />
+        ) : (
+          <>
+            <div class="project-context">
+              <div
+                class="project-context-title"
+                style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}
               >
-                ID: {projectId}
-              </span>
-            )}
-          </div>
-          <p class="project-context-help">
-            {projectId
-              ? 'Documents and tokens below are scoped to this project.'
-              : 'Documents and tokens below are stored in your global scope.'}
-          </p>
-        </div>
-
-        <div class="dashboard-grid">
-          <div class="dashboard-left">
-            <section class="section">
-              <div class="section-header">
-                <h2>Documents</h2>
-                <span class="badge">{projectId ? 'project' : 'global'}</span>
+                <span>{projectId ? 'Project Database' : 'Global Database'}</span>
+                {projectId && (
+                  <span
+                    class="badge"
+                    style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: '0.75rem',
+                      textTransform: 'none',
+                      background: 'var(--accent-light)',
+                      color: 'var(--accent)',
+                      border: '1px solid rgba(99, 102, 241, 0.2)',
+                    }}
+                  >
+                    ID: {projectId}
+                  </span>
+                )}
               </div>
-              <DocManager projectId={projectId} />
-            </section>
-          </div>
+              <p class="project-context-help">
+                {projectId
+                  ? 'Documents and tokens below are scoped to this project.'
+                  : 'Documents and tokens below are stored in your global scope.'}
+              </p>
+            </div>
 
-          <div class="dashboard-right">
-            <section class="section">
-              <div class="section-header">
-                <h2>API Tokens</h2>
-                <span class="badge">{projectId ? 'project' : 'global'}</span>
+            <div class="dashboard-grid">
+              <div class="dashboard-left">
+                <section class="section">
+                  <div class="section-header">
+                    <h2>Documents</h2>
+                    <span class="badge">{projectId ? 'project' : 'global'}</span>
+                  </div>
+                  <DocManager projectId={projectId} />
+                </section>
               </div>
-              <TokenManager projectId={projectId} />
-            </section>
-          </div>
-        </div>
 
-        <section class="section guide-section">
-          <CurlGuide projectId={projectId} />
-        </section>
+              <div class="dashboard-right">
+                <section class="section">
+                  <div class="section-header">
+                    <h2>API Tokens</h2>
+                    <span class="badge">{projectId ? 'project' : 'global'}</span>
+                  </div>
+                  <TokenManager projectId={projectId} />
+                </section>
+              </div>
+            </div>
+
+            <section class="section guide-section">
+              <CurlGuide projectId={projectId} />
+            </section>
+          </>
+        )}
       </main>
     </div>
   )
