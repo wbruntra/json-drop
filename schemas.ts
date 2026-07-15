@@ -31,6 +31,35 @@ export const upsertDocSchema = z.object({
   access_mode: z.enum(['public', 'public_read_secret_write', 'private']).default('public'),
 })
 
+export const workspaceRoleSchema = z.enum(['owner', 'admin', 'editor', 'viewer'])
+
+export const createWorkspaceSchema = z.object({
+  name: z.string().min(1).max(100),
+  project_id: z.string().optional(),
+})
+
+export const updateWorkspaceSchema = z.object({
+  name: z.string().min(1).max(100),
+})
+
+export const createInviteSchema = z.object({
+  role: workspaceRoleSchema.exclude(['owner']),
+  expires_at: z.string().datetime().optional(),
+  max_uses: z.number().int().positive().optional(),
+})
+
+export const redeemInviteSchema = z.object({
+  secret: z.string().min(1),
+})
+
+export const updateMemberRoleSchema = z.object({
+  role: workspaceRoleSchema,
+})
+
+export const recoverSessionSchema = z.object({
+  secret: z.string().min(1),
+})
+
 export function formatZodError(err: z.ZodError): string {
   return err.issues[0]?.message ?? 'Invalid request'
 }

@@ -1,6 +1,6 @@
 {
   "name": "@wbruntra/json-drop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Firebase-style JavaScript SDK for json-drop",
   "type": "module",
   "main": "./dist/index.js",

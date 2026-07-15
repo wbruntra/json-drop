@@ -18,6 +18,32 @@ import {
   handleDeleteByPath,
 } from './routes/docs'
 import { handleDevLogin, handleDevCreateToken } from './routes/dev'
+import {
+  handleCreateAnonymousSession,
+  handleRecoverSession,
+  handleRedeemInvite,
+} from './routes/sessions'
+import {
+  handleCreateWorkspace,
+  handleListWorkspaces,
+  handleGetWorkspace,
+  handleUpdateWorkspace,
+  handleDeleteWorkspace,
+  handleListMembers,
+  handleUpdateMemberRole,
+  handleRemoveMember,
+  handleCreateRecoveryLink,
+  handleCreateInvite,
+  handleListInvites,
+  handleRevokeInvite,
+} from './routes/workspaces'
+import {
+  handleListWorkspaceDocs,
+  handleCreateWorkspaceDoc,
+  handleGetWorkspaceDoc,
+  handleSetWorkspaceDoc,
+  handleDeleteWorkspaceDoc,
+} from './routes/workspaceDocs'
 
 type Bindings = {
   Variables: {
@@ -67,6 +93,34 @@ export function createApp() {
 
   // Me
   app.get('/api/me', handleMe)
+
+  // Sessions & invite redemption
+  app.post('/api/sessions/anonymous', handleCreateAnonymousSession)
+  app.post('/api/sessions/recover', handleRecoverSession)
+  app.post('/api/invites/redeem', handleRedeemInvite)
+
+  // Workspaces
+  app.post('/api/workspaces', handleCreateWorkspace)
+  app.get('/api/workspaces', handleListWorkspaces)
+  app.get('/api/workspaces/:id', handleGetWorkspace)
+  app.patch('/api/workspaces/:id', handleUpdateWorkspace)
+  app.delete('/api/workspaces/:id', handleDeleteWorkspace)
+
+  app.get('/api/workspaces/:id/members', handleListMembers)
+  app.patch('/api/workspaces/:id/members/:userId', handleUpdateMemberRole)
+  app.delete('/api/workspaces/:id/members/:userId', handleRemoveMember)
+  app.post('/api/workspaces/:id/members/:userId/recovery-link', handleCreateRecoveryLink)
+
+  app.post('/api/workspaces/:id/invites', handleCreateInvite)
+  app.get('/api/workspaces/:id/invites', handleListInvites)
+  app.delete('/api/workspaces/:id/invites/:inviteId', handleRevokeInvite)
+
+  // Workspace-scoped documents
+  app.get('/api/workspaces/:id/documents', handleListWorkspaceDocs)
+  app.post('/api/workspaces/:id/collections/:collection/documents', handleCreateWorkspaceDoc)
+  app.get('/api/workspaces/:id/documents/:docId', handleGetWorkspaceDoc)
+  app.put('/api/workspaces/:id/documents/:docId', handleSetWorkspaceDoc)
+  app.delete('/api/workspaces/:id/documents/:docId', handleDeleteWorkspaceDoc)
 
   // Projects
   app.post('/api/projects', handleCreateProject)

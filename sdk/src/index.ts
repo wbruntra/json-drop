@@ -25,6 +25,36 @@ export type Me = {
   display_name: string | null
 }
 
+export type WorkspaceRole = 'owner' | 'admin' | 'editor' | 'viewer'
+
+export type Workspace = {
+  id: string
+  name: string
+  project_id: string | null
+  created_at: string
+}
+
+export type WorkspaceMemberInfo = {
+  user_id: number
+  role: WorkspaceRole
+  display_name: string | null
+  kind: string
+  joined_at: string
+}
+
+export type WorkspaceInviteInfo = {
+  id: string
+  role: WorkspaceRole
+  expires_at: string | null
+  max_uses: number | null
+  use_count: number
+  created_at: string
+}
+
+export type CreateInviteResult = WorkspaceInviteInfo & { secret: string; message: string }
+
+export type AnonymousSession = { token: string; user: { id: number; kind: string } }
+
 export type CreateProjectResult = Project
 
 export type ListDocsResult = {
@@ -80,7 +110,7 @@ export type JsonDropConfig = {
 }
 
 type RequestOptions = {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE'
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
   body?: unknown
   query?: Record<string, string | number | undefined | null>
   secret?: string
@@ -89,7 +119,7 @@ type RequestOptions = {
 
 export class JsonDrop {
   private readonly baseUrl: string
-  private readonly token?: string
+  private token?: string
   private readonly defaultProject?: string
   private readonly defaultSecret?: string
   private readonly fetchImpl: typeof fetch
@@ -98,6 +128,25 @@ export class JsonDrop {
     create: (input: { name: string }) => Promise<CreateProjectResult>
     list: () => Promise<Project[]>
     delete: (id: string) => Promise<{ deleted: true }>
+  }
+
+  /**
+   * Anonymous, low-friction identity — no GitHub account required. Creating a
+   * session sets this client's token, so subsequent calls (e.g. redeeming an
+   * invite, creating a workspace) authenticate as the new principal.
+   */
+  readonly sessions: {
+    createAnonymous: () => Promise<AnonymousSession>
+    recover: (secret: string) => Promise<{ token: string }>
+  }
+
+  readonly invites: {
+    redeem: (secret: string) => Promise<{ workspace_id: string; role: WorkspaceRole }>
+  }
+
+  readonly workspaces: {
+    create: (input: { name: string; projectId?: string }) => Promise<Workspace>
+    list: () => Promise<Workspace[]>
   }
 
   constructor(config: JsonDropConfig) {
@@ -116,6 +165,45 @@ export class JsonDrop {
       list: () => this.request<Project[]>('/api/projects', { method: 'GET' }),
       delete: (id) => this.request<{ deleted: true }>(`/api/projects/${id}`, { method: 'DELETE' }),
     }
+
+    this.sessions = {
+      createAnonymous: async () => {
+        const result = await this.request<AnonymousSession>('/api/sessions/anonymous', {
+          method: 'POST',
+        })
+        this.token = result.token
+        return result
+      },
+      recover: async (secret) => {
+        const result = await this.request<{ token: string }>('/api/sessions/recover', {
+          method: 'POST',
+          body: { secret },
+        })
+        this.token = result.token
+        return result
+      },
+    }
+
+    this.invites = {
+      redeem: (secret) =>
+        this.request<{ workspace_id: string; role: WorkspaceRole }>('/api/invites/redeem', {
+          method: 'POST',
+          body: { secret },
+        }),
+    }
+
+    this.workspaces = {
+      create: (input) =>
+        this.request<Workspace>('/api/workspaces', {
+          method: 'POST',
+          body: { name: input.name, project_id: input.projectId },
+        }),
+      list: () => this.request<Workspace[]>('/api/workspaces', { method: 'GET' }),
+    }
+  }
+
+  workspace(id: string): WorkspaceRef {
+    return new WorkspaceRef(this, id)
   }
 
   /**
@@ -302,5 +390,152 @@ export class IdRef {
       method: 'DELETE',
       ifMatch: opts.ifMatch,
     })
+  }
+}
+
+export type WorkspaceDoc = {
+  id: string
+  path: string
+  content: unknown
+  size_bytes: number
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+export type WorkspaceListDocsResult = {
+  prefix: string | null
+  order: string
+  docs: WorkspaceDoc[]
+  storage: { used_bytes: number; used: string; limit: string }
+}
+
+// Workspace-scoped documents are authorized by membership role, not by
+// access_mode/secret — there's nothing to configure per write, unlike the
+// legacy CollectionRef/DocRef above.
+export class WorkspaceCollectionRef {
+  constructor(
+    private readonly db: JsonDrop,
+    private readonly workspaceId: string,
+    private readonly name: string,
+  ) {}
+
+  async add(content: unknown): Promise<WorkspaceDoc> {
+    return this.db.request<WorkspaceDoc>(
+      `/api/workspaces/${this.workspaceId}/collections/${this.name}/documents`,
+      { method: 'POST', body: { content } },
+    )
+  }
+
+  async list(opts: { prefix?: string } = {}): Promise<WorkspaceListDocsResult> {
+    return this.db.request<WorkspaceListDocsResult>(
+      `/api/workspaces/${this.workspaceId}/documents`,
+      { method: 'GET', query: { prefix: opts.prefix ?? this.name } },
+    )
+  }
+}
+
+export class WorkspaceDocRef {
+  constructor(
+    private readonly db: JsonDrop,
+    private readonly workspaceId: string,
+    public readonly id: string,
+  ) {}
+
+  async get(): Promise<WorkspaceDoc> {
+    return this.db.request<WorkspaceDoc>(
+      `/api/workspaces/${this.workspaceId}/documents/${this.id}`,
+      { method: 'GET' },
+    )
+  }
+
+  async set(content: unknown, opts: { ifMatch?: number } = {}): Promise<WorkspaceDoc> {
+    return this.db.request<WorkspaceDoc>(
+      `/api/workspaces/${this.workspaceId}/documents/${this.id}`,
+      { method: 'PUT', body: { content }, ifMatch: opts.ifMatch },
+    )
+  }
+
+  async delete(opts: { ifMatch?: number } = {}): Promise<{ deleted: true }> {
+    return this.db.request<{ deleted: true }>(
+      `/api/workspaces/${this.workspaceId}/documents/${this.id}`,
+      { method: 'DELETE', ifMatch: opts.ifMatch },
+    )
+  }
+}
+
+export class WorkspaceRef {
+  readonly members: {
+    list: () => Promise<WorkspaceMemberInfo[]>
+    updateRole: (
+      userId: number,
+      role: WorkspaceRole,
+    ) => Promise<{ user_id: number; role: WorkspaceRole }>
+    remove: (userId: number) => Promise<{ removed: true }>
+    createRecoveryLink: (userId: number) => Promise<{ secret: string; expires_at: string }>
+  }
+
+  readonly invites: {
+    create: (input: {
+      role: Exclude<WorkspaceRole, 'owner'>
+      expiresAt?: string
+      maxUses?: number
+    }) => Promise<CreateInviteResult>
+    list: () => Promise<WorkspaceInviteInfo[]>
+    revoke: (inviteId: string) => Promise<{ revoked: true }>
+  }
+
+  constructor(
+    private readonly db: JsonDrop,
+    public readonly id: string,
+  ) {
+    const base = `/api/workspaces/${id}`
+
+    this.members = {
+      list: () => this.db.request<WorkspaceMemberInfo[]>(`${base}/members`, { method: 'GET' }),
+      updateRole: (userId, role) =>
+        this.db.request<{ user_id: number; role: WorkspaceRole }>(`${base}/members/${userId}`, {
+          method: 'PATCH',
+          body: { role },
+        }),
+      remove: (userId) =>
+        this.db.request<{ removed: true }>(`${base}/members/${userId}`, { method: 'DELETE' }),
+      createRecoveryLink: (userId) =>
+        this.db.request<{ secret: string; expires_at: string }>(
+          `${base}/members/${userId}/recovery-link`,
+          { method: 'POST' },
+        ),
+    }
+
+    this.invites = {
+      create: (input) =>
+        this.db.request<CreateInviteResult>(`${base}/invites`, {
+          method: 'POST',
+          body: { role: input.role, expires_at: input.expiresAt, max_uses: input.maxUses },
+        }),
+      list: () => this.db.request<WorkspaceInviteInfo[]>(`${base}/invites`, { method: 'GET' }),
+      revoke: (inviteId) =>
+        this.db.request<{ revoked: true }>(`${base}/invites/${inviteId}`, { method: 'DELETE' }),
+    }
+  }
+
+  get(): Promise<Workspace & { role: WorkspaceRole }> {
+    return this.db.request(`/api/workspaces/${this.id}`, { method: 'GET' })
+  }
+
+  update(input: { name: string }): Promise<Workspace> {
+    return this.db.request(`/api/workspaces/${this.id}`, { method: 'PATCH', body: input })
+  }
+
+  delete(): Promise<{ deleted: true }> {
+    return this.db.request(`/api/workspaces/${this.id}`, { method: 'DELETE' })
+  }
+
+  collection(name: string): WorkspaceCollectionRef {
+    return new WorkspaceCollectionRef(this.db, this.id, name)
+  }
+
+  doc(id: string): WorkspaceDocRef {
+    return new WorkspaceDocRef(this.db, this.id, id)
   }
 }

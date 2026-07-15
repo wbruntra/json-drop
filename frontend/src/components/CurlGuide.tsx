@@ -55,8 +55,32 @@ export function CurlGuide({ projectId }: Props) {
           {lang === 'sdk' && (
             <div class="sdk-setup-guide">
               <p class="guide-intro">
-                Install: <code>bun add json-drop</code> or <code>npm install json-drop</code>
+                The SDK is published to <strong>GitHub Packages</strong>. To install, configure{' '}
+                <code>.npmrc</code> first:
               </p>
+
+              <div class="curl-block" style={{ marginBottom: '1rem' }}>
+                <span class="curl-label">
+                  1. Create <code>.npmrc</code> at your project root:
+                </span>
+                <pre>
+                  <code>{`@wbruntra:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=\${GITHUB_TOKEN}`}</code>
+                </pre>
+                <span class="curl-note">
+                  Set the <code>GITHUB_TOKEN</code> env var to a GitHub Personal Access Token (PAT)
+                  with <code>read:packages</code> scope.
+                </span>
+              </div>
+
+              <div class="curl-block" style={{ marginBottom: '1.5rem' }}>
+                <span class="curl-label">2. Install the package:</span>
+                <pre>
+                  <code>{`bun add @wbruntra/json-drop
+# or
+npm install @wbruntra/json-drop`}</code>
+                </pre>
+              </div>
 
               <div class="curl-block" style={{ borderLeft: '3px solid var(--accent)' }}>
                 <span class="curl-label" style={{ fontWeight: 'bold', color: 'var(--accent)' }}>
@@ -69,7 +93,7 @@ export function CurlGuide({ projectId }: Props) {
                   authenticate.
                 </p>
                 <pre>
-                  <code>{`import { JsonDrop } from 'json-drop'
+                  <code>{`import { JsonDrop } from '@wbruntra/json-drop'
 
 const db = new JsonDrop({
   baseUrl: '${baseUrl}',

@@ -9,6 +9,7 @@
 | 2026-06-12 | agent  | Vite build failed due to --outdir option in package.json  | Fixed --outdir to --outDir in package.json to match Vite CLI expectations.                                                                                         |
 | 2026-06-16 | agent  | SDK documentation missing from frontend                   | Replaced Preact CurlGuide code examples tab with three options (SDK, curl, axios) and detailed SDK installation/init instructions.                                 |
 | 2026-06-16 | agent  | Token custom name was redundant and Project ID was hidden | Removed Token name input, displayed scopes/permissions for listed tokens, and added copyable Project ID display in header & dashboard context.                     |
+| 2026-07-09 | agent  | SDK installation guide showed global `json-drop` package  | Updated guide to use scoped `@wbruntra/json-drop` package on GitHub Packages and explain the `.npmrc` authentication setup.                                        |
 
 ## User Preferences
 

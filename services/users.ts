@@ -12,6 +12,7 @@ export async function createUser(
       github_id: githubId,
       email,
       display_name: displayName,
+      kind: 'github',
     })
     .onConflict((oc) =>
       oc.column('github_id').doUpdateSet({

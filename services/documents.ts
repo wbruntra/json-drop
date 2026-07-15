@@ -171,6 +171,130 @@ export async function deleteDocument(id: string, userId: number): Promise<boolea
   return result.numDeletedRows > 0
 }
 
+// Workspace-scoped documents: unique per (workspace_id, path), not per-author
+// — any member writing to the same path updates the same shared document
+// (see migrations/003_workspaces.ts idx_documents_workspace_path).
+
+export async function upsertDocumentInWorkspace(
+  path: string,
+  workspaceId: string,
+  userId: number,
+  content: string,
+  sizeBytes: number,
+): Promise<Document> {
+  const db = getDb()
+
+  const existing = await db
+    .selectFrom('documents')
+    .select('id')
+    .where('workspace_id', '=', workspaceId)
+    .where('path', '=', path)
+    .executeTakeFirst()
+
+  const id = existing?.id ?? translator.generate()
+
+  return db
+    .insertInto('documents')
+    .values({
+      id,
+      path,
+      user_id: userId,
+      project_id: null,
+      workspace_id: workspaceId,
+      content,
+      access_mode: 'private',
+      access_secret: null,
+      size_bytes: sizeBytes,
+    })
+    .onConflict((oc) =>
+      oc.columns(['workspace_id', 'path']).doUpdateSet({
+        user_id: userId,
+        content,
+        size_bytes: sizeBytes,
+        version: sql`version + 1`,
+        updated_at: sql`CURRENT_TIMESTAMP`,
+      }),
+    )
+    .returningAll()
+    .executeTakeFirstOrThrow()
+}
+
+export async function getDocumentByWorkspacePath(
+  workspaceId: string,
+  path: string,
+): Promise<Document | null> {
+  const result = await getDb()
+    .selectFrom('documents')
+    .selectAll()
+    .where('workspace_id', '=', workspaceId)
+    .where('path', '=', path)
+    .executeTakeFirst()
+  return result ?? null
+}
+
+export async function getDocumentByWorkspaceId(
+  workspaceId: string,
+  id: string,
+): Promise<Document | null> {
+  const result = await getDb()
+    .selectFrom('documents')
+    .selectAll()
+    .where('workspace_id', '=', workspaceId)
+    .where('id', '=', id)
+    .executeTakeFirst()
+  return result ?? null
+}
+
+export async function listDocumentsByWorkspace(
+  workspaceId: string,
+  options: { prefix?: string } = {},
+): Promise<Document[]> {
+  let query = getDb().selectFrom('documents').selectAll().where('workspace_id', '=', workspaceId)
+
+  if (options.prefix) {
+    const prefixPattern = options.prefix.endsWith('/')
+      ? `${options.prefix}%`
+      : `${options.prefix}/%`
+    query = query.where('path', 'like', prefixPattern)
+  }
+
+  return query.orderBy('path', 'asc').execute()
+}
+
+export async function getWorkspaceTotalSize(workspaceId: string): Promise<number> {
+  const result = await getDb()
+    .selectFrom('documents')
+    .select((eb) => eb.fn.coalesce(eb.fn.sum('size_bytes'), sql`0`).as('total'))
+    .where('workspace_id', '=', workspaceId)
+    .executeTakeFirstOrThrow()
+
+  return result.total as number
+}
+
+export async function deleteDocumentByWorkspacePath(
+  workspaceId: string,
+  path: string,
+): Promise<boolean> {
+  const result = await getDb()
+    .deleteFrom('documents')
+    .where('workspace_id', '=', workspaceId)
+    .where('path', '=', path)
+    .executeTakeFirst()
+  return result.numDeletedRows > 0
+}
+
+export async function deleteDocumentByWorkspaceId(
+  workspaceId: string,
+  id: string,
+): Promise<boolean> {
+  const result = await getDb()
+    .deleteFrom('documents')
+    .where('workspace_id', '=', workspaceId)
+    .where('id', '=', id)
+    .executeTakeFirst()
+  return result.numDeletedRows > 0
+}
+
 export async function deleteDocumentByScopeAndPath(
   scope: DocScope,
   path: string,

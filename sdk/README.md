@@ -119,6 +119,87 @@ const secretDb = new JsonDrop({
 await secretDb.doc('logs/2025-01').set({ entries: [] })
 ```
 
+## Workspaces (shared, role-based access)
+
+Everything above (`db.projects`, `db.collection()`, `db.doc()`) is the **legacy, single-owner
+API** — documents belong to one account, and sharing means handing out a per-document secret.
+For anything with more than one person collaborating on the same data (a shared expense
+group, a team checklist, ...), use the **workspace API** instead: a workspace is a named,
+access-controlled container with per-member roles (`owner` / `admin` / `editor` / `viewer`),
+invite links, and its own collections/documents. Workspace documents ignore `accessMode` and
+`secret` entirely — membership is the access control.
+
+### Getting an identity
+
+Use a token from a GitHub-authenticated `JsonDrop` instance (`token: 'jd_…'`) if the person
+already has a json-drop account. For frictionless onboarding — e.g. a friend clicking an
+invite link who has never used json-drop — create an anonymous session instead:
+
+```ts
+const db = new JsonDrop({ baseUrl: 'https://your-jsondrop-server.com' })
+const { token, user } = await db.sessions.createAnonymous()
+// db is now authenticated as this new principal; store `token` (e.g. localStorage)
+// to reuse the same identity on the next page load.
+```
+
+If that anonymous device's storage is ever lost, an owner/admin of a workspace the principal
+belongs to can issue a recovery link (`ws.members.createRecoveryLink(userId)`, below) that
+re-authenticates the _same_ principal via `db.sessions.recover(secret)` — as opposed to
+rejoining as a brand-new member with no history.
+
+### Creating a workspace and inviting people
+
+```ts
+const workspace = await db.workspaces.create({ name: 'Italy 2026' }) // caller becomes owner
+const ws = db.workspace(workspace.id)
+
+const invite = await ws.invites.create({ role: 'editor' })
+// invite.secret is shown once — build a URL for it yourself and send it out of band,
+// e.g. `https://your-app.com/join?invite=${invite.secret}`
+```
+
+Someone redeeming that link (on their own `JsonDrop` instance, with their own token or a fresh
+anonymous session):
+
+```ts
+const friend = new JsonDrop({ baseUrl: 'https://your-jsondrop-server.com' })
+await friend.sessions.createAnonymous()
+const { workspace_id, role } = await friend.invites.redeem(invite.secret)
+```
+
+Redeeming the same invite again as the same principal is idempotent — it won't consume another
+use or change their role.
+
+### Members
+
+```ts
+await ws.members.list() // [{ user_id, role, display_name, kind, joined_at }, ...]
+await ws.members.updateRole(userId, 'admin')
+await ws.members.remove(userId)
+
+// Owner/admin-only: re-authenticate a member who lost their anonymous session.
+const { secret } = await ws.members.createRecoveryLink(userId)
+// send `secret` to that member out of band; they call:
+await friend.sessions.recover(secret)
+```
+
+The last remaining `owner` of a workspace can't be demoted or removed — the server rejects it
+(`400`) to prevent an unowned workspace.
+
+### Workspace documents
+
+Same collection/doc shape as the legacy API, minus `accessMode`/`secret`:
+
+```ts
+const expenses = ws.collection('expenses')
+const expense = await expenses.add({ amount: 42, paidBy: userId })
+const { docs } = await expenses.list()
+
+const ref = ws.doc(expense.id)
+await ref.set({ amount: 45, paidBy: userId }, { ifMatch: expense.version }) // optimistic concurrency, same as db.doc()
+await ref.delete()
+```
+
 ## API
 
 ### `new JsonDrop(config)`
@@ -158,6 +239,45 @@ Path-addressed ref. **Path is the full document path, e.g. `'users/alice'`.**
 ### `db.get(id)` / `db.delete(id)`
 
 Shortcuts for id-addressed reads and deletes.
+
+### `db.sessions`
+
+- `db.sessions.createAnonymous()` — creates a new anonymous principal and session; sets this
+  client's token and returns `{ token, user: { id, kind } }`.
+- `db.sessions.recover(secret)` — redeems an owner-issued member recovery link (see
+  `ws.members.createRecoveryLink`); sets this client's token and returns `{ token }` for the
+  original principal.
+
+### `db.invites`
+
+- `db.invites.redeem(secret)` — redeems a workspace invite as the current principal. Returns
+  `{ workspace_id, role }`. Idempotent for an existing member.
+
+### `db.workspaces`
+
+- `db.workspaces.create({ name, projectId? })` — creates a workspace; caller becomes `owner`.
+- `db.workspaces.list()` — lists workspaces the caller is an active member of.
+
+### `db.workspace(id)`
+
+Returns a `WorkspaceRef`:
+
+- `.get()` — workspace metadata plus the caller's `role`.
+- `.update({ name })` — requires `workspace.manage` (owner/admin).
+- `.delete()` — requires `workspace.delete` (owner only).
+- `.collection(name)` / `.doc(id)` — see "Workspace documents" above.
+- `.members.list()` / `.members.updateRole(userId, role)` / `.members.remove(userId)` /
+  `.members.createRecoveryLink(userId)` — all require `members.manage` except `list`, which any
+  member can call.
+- `.invites.create({ role, expiresAt?, maxUses? })` / `.invites.list()` /
+  `.invites.revoke(inviteId)` — require `invites.manage` (owner/admin). `role` excludes
+  `'owner'` — invites can only grant `admin`/`editor`/`viewer`.
+
+### Types
+
+`WorkspaceRole` (`'owner' | 'admin' | 'editor' | 'viewer'`), `Workspace`,
+`WorkspaceMemberInfo`, `WorkspaceInviteInfo`, `CreateInviteResult`, `WorkspaceDoc`,
+`WorkspaceListDocsResult`, `AnonymousSession` are all exported from the package.
 
 ## Access modes
 

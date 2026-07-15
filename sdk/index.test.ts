@@ -208,3 +208,34 @@ describe('JsonDrop SDK', () => {
     expect(list.docs.length).toBeGreaterThan(0)
   })
 })
+
+describe('JsonDrop SDK — workspaces', () => {
+  test('anonymous session, workspace, invite, and document round-trip', async () => {
+    const owner = new JsonDrop({ baseUrl })
+    await owner.sessions.createAnonymous()
+
+    const workspace = await owner.workspaces.create({ name: 'Italy 2026' })
+    const ws = owner.workspace(workspace.id)
+
+    const invite = await ws.invites.create({ role: 'editor' })
+    expect(invite.secret).toBeTruthy()
+
+    const friend = new JsonDrop({ baseUrl })
+    await friend.sessions.createAnonymous()
+    const redeemed = await friend.invites.redeem(invite.secret)
+    expect(redeemed.workspace_id).toBe(workspace.id)
+    expect(redeemed.role).toBe('editor')
+
+    const friendWs = friend.workspace(workspace.id)
+    const expenses = friendWs.collection('expenses')
+    const doc = await expenses.add({ amount: 42, paidBy: 'friend' })
+    expect(doc.version).toBe(1)
+
+    const list = await expenses.list()
+    expect(list.docs.length).toBe(1)
+
+    const members = await ws.members.list()
+    expect(members.length).toBe(2)
+    expect(members.map((m) => m.role).sort()).toEqual(['editor', 'owner'])
+  })
+})
