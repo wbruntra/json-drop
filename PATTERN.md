@@ -105,7 +105,7 @@ Single module that owns the connection:
 
 ```ts
 // server.ts
-await initDatabase(process.env.DATABASE_URL || 'db.sqlite')
+await initDatabase(process.env.DATABASE_URL || 'db.sqlite') // inside main()
 ```
 
 ### Kysely Query Pattern
@@ -287,14 +287,18 @@ Express's `bin/www`):
 import { initDatabase } from './kysely-db'
 import app from './app'
 
-await initDatabase(process.env.DATABASE_URL || 'db.sqlite')
+// No top-level await: pm2's Bun container loads the entry with require(),
+// which rejects modules that use top-level await.
+async function main() {
+  await initDatabase(process.env.DATABASE_URL || 'db.sqlite')
+  const server = Bun.serve({ port: Number(process.env.PORT) || 3000, fetch: app.fetch })
+  console.log(`Listening on http://localhost:${server.port}`)
+}
 
-const server = Bun.serve({
-  port: Number(process.env.PORT) || 3000,
-  fetch: app.fetch,
+main().catch((err) => {
+  console.error(err)
+  process.exit(1)
 })
-
-console.log(`Listening on http://localhost:${server.port}`)
 ```
 
 Never import `server.ts` from tests or other modules; importing it starts a server.
