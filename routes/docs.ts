@@ -12,7 +12,6 @@ import {
   getProject,
 } from '../services'
 import type { AuthContext } from '../services/auth'
-import type { DocScope } from '../services/documents'
 import { LIMITS } from '../limits'
 import { pathSchema, upsertDocSchema, formatZodError } from '../schemas'
 import {
@@ -92,24 +91,23 @@ function docPayload(d: {
 }
 
 type ResolvedScope = {
-  projectId: string | null
-  ownerId: number | null
+  projectId: string
+  ownerId: number
 }
 
-async function resolveScope(c: Context, auth: AuthContext): Promise<ResolvedScope> {
-  // 1) Token-scoped wins.
-  if (auth.projectId) {
-    return { projectId: auth.projectId, ownerId: auth.user?.id ?? null }
+// Every document request is scoped to one project: a project key's own
+// project, otherwise ?project=<id>. There is no account-wide document scope.
+async function resolveScope(c: Context, auth: AuthContext): Promise<ResolvedScope | Response> {
+  if (auth.projectId && auth.user) {
+    return { projectId: auth.projectId, ownerId: auth.user.id }
   }
-  // 2) ?project=<id> query
   const projectQuery = c.req.query('project')
-  if (projectQuery) {
-    const project = await getProject(projectQuery)
-    if (!project) return { projectId: null, ownerId: null }
-    return { projectId: project.id, ownerId: project.user_id }
+  if (!projectQuery) {
+    return badRequest(c, 'No project: use a project key or add ?project=<id>')
   }
-  // 3) global
-  return { projectId: null, ownerId: auth.user?.id ?? null }
+  const project = await getProject(projectQuery)
+  if (!project) return notFound(c, 'Project not found')
+  return { projectId: project.id, ownerId: project.user_id }
 }
 
 function parseIfMatch(c: Context): number | undefined {
@@ -192,8 +190,6 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
     return unauthenticated(c)
   }
 
-  const scope = await resolveScope(c, auth)
-
   if (
     auth.user &&
     auth.tokenPermissions &&
@@ -202,10 +198,13 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
     return forbidden(c)
   }
 
-  // For writes, if a project is in scope, the caller must own it (or the token
-  // must be project-scoped, in which case auth.projectId is already set).
-  if (auth.user && scope.projectId && scope.ownerId !== auth.user.id) {
-    return forbidden(c)
+  // Secret-only writes locate the document by its secret and need no scope.
+  let scope: ResolvedScope | null = null
+  if (auth.user) {
+    const resolved = await resolveScope(c, auth)
+    if (resolved instanceof Response) return resolved
+    if (resolved.ownerId !== auth.user.id) return forbidden(c)
+    scope = resolved
   }
 
   const rawBody = await c.req.json()
@@ -228,6 +227,7 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
   }
 
   const accessMode = parsed.data.access_mode
+  scope = scope!
 
   const existingDoc = await getDocumentByScopeAndPath(
     { projectId: scope.projectId, userId: scope.ownerId },
@@ -294,6 +294,7 @@ export async function handleUpsertDoc(c: Context): Promise<Response> {
 export async function handleListDocs(c: Context): Promise<Response> {
   const auth = c.get('auth')
   const scope = await resolveScope(c, auth)
+  if (scope instanceof Response) return scope
   const secret = c.req.query('secret') ?? null
 
   const pathQuery = c.req.query('path')
@@ -306,12 +307,12 @@ export async function handleListDocs(c: Context): Promise<Response> {
       return forbidden(c)
     }
 
-    // For anonymous reads, scope.projectId can be set via ?project= but
-    // scope.ownerId will be null; that is fine — getDocumentByScopeAndPath
-    // will look up any doc with that project_id, and canRead allows public
-    // docs for anyone.
-    const docScope: DocScope = { projectId: scope.projectId, userId: scope.ownerId }
-    const doc = await getDocumentByScopeAndPath(docScope, pathQuery)
+    // Anyone may look up a path in a project; canRead then decides whether
+    // the caller may see that document.
+    const doc = await getDocumentByScopeAndPath(
+      { projectId: scope.projectId, userId: scope.ownerId },
+      pathQuery,
+    )
     if (!doc) {
       return notFound(c, 'Document not found')
     }
@@ -331,7 +332,7 @@ export async function handleListDocs(c: Context): Promise<Response> {
 
   const prefix = c.req.query('prefix') || undefined
 
-  if (scope.projectId && scope.ownerId !== auth.user.id) {
+  if (scope.ownerId !== auth.user.id) {
     return forbidden(c)
   }
 
@@ -385,7 +386,8 @@ export async function handleCreateDoc(c: Context): Promise<Response> {
   }
 
   const scope = await resolveScope(c, auth)
-  if (scope.projectId && scope.ownerId !== auth.user.id) {
+  if (scope instanceof Response) return scope
+  if (scope.ownerId !== auth.user.id) {
     return forbidden(c)
   }
 
@@ -491,7 +493,8 @@ export async function handleDeleteByPath(c: Context): Promise<Response> {
   }
 
   const scope = await resolveScope(c, auth)
-  if (scope.projectId && scope.ownerId !== auth.user.id) {
+  if (scope instanceof Response) return scope
+  if (scope.ownerId !== auth.user.id) {
     return forbidden(c)
   }
 

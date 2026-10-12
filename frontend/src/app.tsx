@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'preact/hooks'
 import { Login } from './components/Login'
-import { Dashboard } from './components/Dashboard'
+import { Shell } from './components/Shell'
 import { api } from './api'
 
 type User = {
@@ -41,5 +41,5 @@ export function App() {
     return <Login />
   }
 
-  return <Dashboard user={user} onLogout={() => setUser(null)} />
+  return <Shell user={user} onLogout={() => setUser(null)} />
 }

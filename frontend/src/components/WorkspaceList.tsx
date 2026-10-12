@@ -9,11 +9,12 @@ export type Workspace = {
 }
 
 type Props = {
+  projectId: string
   selectedId: string | null
   onSelect: (id: string) => void
 }
 
-export function WorkspaceList({ selectedId, onSelect }: Props) {
+export function WorkspaceList({ projectId, selectedId, onSelect }: Props) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -21,18 +22,15 @@ export function WorkspaceList({ selectedId, onSelect }: Props) {
   const [isCreating, setIsCreating] = useState(false)
   const [newName, setNewName] = useState('')
 
-  const [joinSecret, setJoinSecret] = useState('')
-  const [joining, setJoining] = useState(false)
-  const [joinError, setJoinError] = useState<string | null>(null)
-
   const fetchWorkspaces = async () => {
     setLoading(true)
     setError(null)
     const res = await api('/api/workspaces')
     if (res.ok) {
-      const data: Workspace[] = await res.json()
+      const all: Workspace[] = await res.json()
+      const data = all.filter((w) => w.project_id === projectId)
       setWorkspaces(data)
-      if (!selectedId && data.length > 0) onSelect(data[0].id)
+      if (!selectedId && data[0]) onSelect(data[0].id)
     } else {
       setError('Failed to load workspaces')
     }
@@ -41,7 +39,7 @@ export function WorkspaceList({ selectedId, onSelect }: Props) {
 
   useEffect(() => {
     fetchWorkspaces()
-  }, [])
+  }, [projectId])
 
   const handleCreate = async () => {
     const name = newName.trim()
@@ -50,7 +48,7 @@ export function WorkspaceList({ selectedId, onSelect }: Props) {
     const res = await api('/api/workspaces', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify({ name, project_id: projectId }),
     })
 
     if (!res.ok) {
@@ -65,31 +63,6 @@ export function WorkspaceList({ selectedId, onSelect }: Props) {
     setIsCreating(false)
     setError(null)
     onSelect(created.id)
-  }
-
-  const handleJoin = async () => {
-    const secret = joinSecret.trim()
-    if (!secret) return
-
-    setJoining(true)
-    setJoinError(null)
-    const res = await api('/api/invites/redeem', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret }),
-    })
-    setJoining(false)
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      setJoinError(data.message || 'Failed to redeem invite')
-      return
-    }
-
-    const { workspace_id } = await res.json()
-    setJoinSecret('')
-    await fetchWorkspaces()
-    onSelect(workspace_id)
   }
 
   return (
@@ -153,25 +126,6 @@ export function WorkspaceList({ selectedId, onSelect }: Props) {
           + New Workspace
         </button>
       )}
-
-      <div class="workspace-join-row">
-        <label class="project-selector-label">Join a workspace</label>
-        <div class="project-selector-row">
-          <input
-            type="text"
-            placeholder="Paste invite secret"
-            value={joinSecret}
-            onInput={(e) => setJoinSecret((e.target as HTMLInputElement).value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') handleJoin()
-            }}
-          />
-          <button class="create-btn" onClick={handleJoin} disabled={joining}>
-            {joining ? 'Joining...' : 'Join'}
-          </button>
-        </div>
-        {joinError && <span class="project-selector-error">{joinError}</span>}
-      </div>
     </div>
   )
 }

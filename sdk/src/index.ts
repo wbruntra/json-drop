@@ -249,12 +249,10 @@ export class JsonDrop {
     const url = new URL(this.baseUrl + path)
     const query: Record<string, string | number | undefined | null> = { ...(opts.query ?? {}) }
 
-    // If a token is set, it already carries its scope (owner or project-scoped).
-    // Only inject ?project= when the SDK config provides one and no token is in use.
-    if (!this.token) {
-      const project = opts.project ?? this.defaultProject
-      if (project) query.project = project
-    }
+    // Document requests need a project: a project key carries its own (and the
+    // server ignores ?project= for it); an account key or no key needs ?project=.
+    const project = opts.project ?? this.defaultProject
+    if (project) query.project = project
     const secret = opts.secret ?? this.defaultSecret
     if (secret) query.secret = secret
 

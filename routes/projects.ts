@@ -1,5 +1,13 @@
 import type { Context } from 'hono'
-import { createProject, listProjects, getProject, deleteProject, isAccountAuth } from '../services'
+import {
+  createProject,
+  getProject,
+  deleteProject,
+  isAccountAuth,
+  listProjectsWithStats,
+  getProjectWithStats,
+  renameProject,
+} from '../services'
 import { createProjectSchema, formatZodError } from '../schemas'
 import { badRequest, unauthenticated, forbidden, notFound } from './errors'
 
@@ -30,24 +38,43 @@ export async function handleListProjects(c: Context): Promise<Response> {
   const auth = c.get('auth')
   if (!auth.user) return unauthenticated(c)
 
-  // A project-scoped key sees only its own project.
-  let projects
   if (isAccountAuth(auth)) {
-    projects = await listProjects(auth.user.id)
-  } else if (auth.projectId) {
-    const own = await getProject(auth.projectId)
-    projects = own ? [own] : []
-  } else {
-    return forbidden(c, 'Requires a dashboard session or account key')
+    return c.json(await listProjectsWithStats(auth.user.id))
   }
 
-  return c.json(
-    projects.map((p) => ({
-      id: p.id,
-      name: p.name,
-      created_at: p.created_at,
-    })),
-  )
+  // A project-scoped key sees only its own project, without stats.
+  if (auth.projectId) {
+    const own = await getProject(auth.projectId)
+    return c.json(own ? [{ id: own.id, name: own.name, created_at: own.created_at }] : [])
+  }
+
+  return forbidden(c, 'Requires a dashboard session or account key')
+}
+
+export async function handleGetProject(c: Context): Promise<Response> {
+  const auth = c.get('auth')
+  if (!auth.user) return unauthenticated(c)
+  if (!isAccountAuth(auth)) return forbidden(c, 'Requires a dashboard session or account key')
+
+  const project = await getProjectWithStats(c.req.param('id')!, auth.user.id)
+  if (!project) return notFound(c, 'Project not found')
+  return c.json(project)
+}
+
+export async function handleUpdateProject(c: Context): Promise<Response> {
+  const auth = c.get('auth')
+  if (!auth.user) return unauthenticated(c)
+  if (!isAccountAuth(auth)) return forbidden(c, 'Requires a dashboard session or account key')
+
+  const rawBody = await c.req.json().catch(() => ({}))
+  const parsed = createProjectSchema.safeParse(rawBody)
+  if (!parsed.success) return badRequest(c, formatZodError(parsed.error))
+
+  const id = c.req.param('id')!
+  if (!(await renameProject(id, auth.user.id, parsed.data.name))) {
+    return notFound(c, 'Project not found')
+  }
+  return c.json(await getProjectWithStats(id, auth.user.id))
 }
 
 export async function handleDeleteProject(c: Context): Promise<Response> {

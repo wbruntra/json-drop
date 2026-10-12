@@ -1,19 +1,21 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test'
-import { createServer } from './server'
+import { createApp } from './app'
 import { generateToken } from './middleware'
 import { initDatabase } from './kysely-db'
-import { createUser, createApiToken, upsertDocument } from './services'
+import { createUser, createApiToken, createProject, upsertDocument } from './services'
 import { LIMITS } from './limits'
 
-let server: ReturnType<typeof createServer>
+let server: ReturnType<typeof Bun.serve>
 let baseUrl: string
 let adminToken: string
 let readToken: string
 let writeToken: string
+let appToken: string
+let projectId: string
 let userRecord: { id: number }
 
 beforeAll(() => {
-  server = createServer({ port: 0 })
+  server = Bun.serve({ port: 0, fetch: createApp().fetch })
   baseUrl = `http://localhost:${server.port}`
 })
 
@@ -29,11 +31,17 @@ beforeEach(async () => {
   adminToken = generateToken()
   await createApiToken(userRecord.id, 'Admin Token', adminToken, 'admin')
 
+  projectId = (await createProject(userRecord.id, 'Test App')).id
+
+  // Documents always live in a project; these keys are scoped to it.
+  appToken = generateToken()
+  await createApiToken(userRecord.id, 'App Token', appToken, 'read_write', projectId)
+
   readToken = generateToken()
-  await createApiToken(userRecord.id, 'Read Token', readToken, 'read')
+  await createApiToken(userRecord.id, 'Read Token', readToken, 'read', projectId)
 
   writeToken = generateToken()
-  await createApiToken(userRecord.id, 'Write Token', writeToken, 'write')
+  await createApiToken(userRecord.id, 'Write Token', writeToken, 'write', projectId)
 })
 
 function authHeader(token: string): Record<string, string> {
@@ -110,7 +118,7 @@ describe('Documents', () => {
   test('PUT /api/docs/{path} creates a public document', async () => {
     const res = await fetch(`${baseUrl}/api/docs/test-doc`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { foo: 'bar' } }),
     })
 
@@ -125,7 +133,7 @@ describe('Documents', () => {
   test('PUT /api/docs/{path} creates a private document with secret', async () => {
     const res = await fetch(`${baseUrl}/api/docs/private-doc`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: { secret: 'data' },
         access_mode: 'private',
@@ -140,7 +148,7 @@ describe('Documents', () => {
   })
 
   test('GET /api/docs lists user documents with storage info', async () => {
-    const res = await fetch(`${baseUrl}/api/docs`, { headers: authHeader(adminToken) })
+    const res = await fetch(`${baseUrl}/api/docs`, { headers: authHeader(appToken) })
 
     expect(res.status).toBe(200)
     const data = await res.json()
@@ -151,7 +159,15 @@ describe('Documents', () => {
   })
 
   test('GET /api/docs?prefix=notes lists documents under collection', async () => {
-    await upsertDocument('notes/todo', userRecord.id, '{"task":"buy milk"}', 'public', null, 20)
+    await upsertDocument(
+      'notes/todo',
+      userRecord.id,
+      '{"task":"buy milk"}',
+      'public',
+      null,
+      20,
+      projectId,
+    )
     await upsertDocument(
       'notes/shopping',
       userRecord.id,
@@ -159,11 +175,20 @@ describe('Documents', () => {
       'public',
       null,
       22,
+      projectId,
     )
-    await upsertDocument('projects/alpha', userRecord.id, '{"name":"alpha"}', 'public', null, 17)
+    await upsertDocument(
+      'projects/alpha',
+      userRecord.id,
+      '{"name":"alpha"}',
+      'public',
+      null,
+      17,
+      projectId,
+    )
 
     const res = await fetch(`${baseUrl}/api/docs?prefix=notes`, {
-      headers: authHeader(adminToken),
+      headers: authHeader(appToken),
     })
     expect(res.status).toBe(200)
     const data = await res.json()
@@ -173,7 +198,15 @@ describe('Documents', () => {
   })
 
   test('GET /api/docs/{id} returns public document without auth', async () => {
-    const doc = await upsertDocument('public-doc', userRecord.id, '{"x":1}', 'public', null, 6)
+    const doc = await upsertDocument(
+      'public-doc',
+      userRecord.id,
+      '{"x":1}',
+      'public',
+      null,
+      6,
+      projectId,
+    )
 
     const res = await fetch(`${baseUrl}/api/docs/${doc.id}`)
     expect(res.status).toBe(200)
@@ -191,6 +224,7 @@ describe('Documents', () => {
       'private',
       'sec123',
       6,
+      projectId,
     )
 
     const res = await fetch(`${baseUrl}/api/docs/${doc.id}`)
@@ -205,6 +239,7 @@ describe('Documents', () => {
       'private',
       'sec456',
       6,
+      projectId,
     )
 
     const res = await fetch(`${baseUrl}/api/docs/${doc.id}?secret=sec456`)
@@ -214,11 +249,11 @@ describe('Documents', () => {
   })
 
   test('PUT /api/docs/{path} updates document as owner', async () => {
-    await upsertDocument('update-doc', userRecord.id, '{"v":1}', 'public', null, 6)
+    await upsertDocument('update-doc', userRecord.id, '{"v":1}', 'public', null, 6, projectId)
 
     const res = await fetch(`${baseUrl}/api/docs/update-doc`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { v: 2 } }),
     })
 
@@ -230,7 +265,7 @@ describe('Documents', () => {
   test('PUT /api/docs/{path} supports nested paths', async () => {
     const res = await fetch(`${baseUrl}/api/docs/notes/2024/january/todo`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { task: 'nested doc' } }),
     })
 
@@ -242,7 +277,7 @@ describe('Documents', () => {
   test('PUT /api/docs/{path} rejects invalid path characters', async () => {
     const res = await fetch(`${baseUrl}/api/docs/invalid%20path!`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: {} }),
     })
 
@@ -253,11 +288,19 @@ describe('Documents', () => {
   })
 
   test('DELETE /api/docs/{id} deletes document as owner', async () => {
-    const doc = await upsertDocument('delete-me', userRecord.id, '{}', 'public', null, 2)
+    const doc = await upsertDocument(
+      'delete-me',
+      userRecord.id,
+      '{}',
+      'public',
+      null,
+      2,
+      projectId,
+    )
 
     const res = await fetch(`${baseUrl}/api/docs/${doc.id}`, {
       method: 'DELETE',
-      headers: authHeader(adminToken),
+      headers: authHeader(appToken),
     })
 
     expect(res.status).toBe(200)
@@ -276,6 +319,7 @@ describe('Documents', () => {
       'public',
       null,
       12,
+      projectId,
     )
     const prsDoc = await upsertDocument(
       'am-prs',
@@ -284,6 +328,7 @@ describe('Documents', () => {
       'public_read_secret_write',
       'prs-sec',
       12,
+      projectId,
     )
     const privDoc = await upsertDocument(
       'am-private',
@@ -292,6 +337,7 @@ describe('Documents', () => {
       'private',
       'priv-sec',
       13,
+      projectId,
     )
 
     const pubRes = await fetch(`${baseUrl}/api/docs/${pubDoc.id}`)
@@ -329,6 +375,7 @@ describe('Documents', () => {
       'private',
       'secret-xyz',
       10,
+      projectId,
     )
 
     // Other user with read_write token tries to read my private doc -> should be 403
@@ -354,7 +401,15 @@ describe('Documents', () => {
     expect(writeRes.status).toBe(403)
 
     // Create a private doc owned by userRecord.id
-    const doc = await upsertDocument('owner-doc', userRecord.id, '{"val":1}', 'private', null, 9)
+    const doc = await upsertDocument(
+      'owner-doc',
+      userRecord.id,
+      '{"val":1}',
+      'private',
+      null,
+      9,
+      projectId,
+    )
 
     // 2. Write token cannot read
     const readRes = await fetch(`${baseUrl}/api/docs/${doc.id}`, {
@@ -381,7 +436,7 @@ describe('Documents', () => {
 
     const res = await fetch(`${baseUrl}/api/docs/too-big`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { data: big } }),
     })
 
@@ -404,12 +459,13 @@ describe('Documents', () => {
         'public',
         null,
         docSize,
+        projectId,
       )
     }
 
     const res = await fetch(`${baseUrl}/api/docs/overflow`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { x: 'y' } }),
     })
 
@@ -424,7 +480,7 @@ describe('Optimistic concurrency', () => {
   test('PUT with matching If-Match succeeds and bumps version', async () => {
     const putRes = await fetch(`${baseUrl}/api/docs/concur/doc`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { v: 1 } }),
     })
     expect(putRes.status).toBe(201)
@@ -434,7 +490,7 @@ describe('Optimistic concurrency', () => {
     const updateRes = await fetch(`${baseUrl}/api/docs/concur/doc`, {
       method: 'PUT',
       headers: {
-        ...authHeader(adminToken),
+        ...authHeader(appToken),
         'Content-Type': 'application/json',
         'If-Match': '1',
       },
@@ -448,7 +504,7 @@ describe('Optimistic concurrency', () => {
   test('PUT with stale If-Match returns 409 conflict with code', async () => {
     const putRes = await fetch(`${baseUrl}/api/docs/concur/stale`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { v: 1 } }),
     })
     const created = await putRes.json()
@@ -456,7 +512,7 @@ describe('Optimistic concurrency', () => {
     // Second write bumps version to 2 (no If-Match).
     await fetch(`${baseUrl}/api/docs/concur/stale`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { v: 2 } }),
     })
 
@@ -464,7 +520,7 @@ describe('Optimistic concurrency', () => {
     const res = await fetch(`${baseUrl}/api/docs/concur/stale`, {
       method: 'PUT',
       headers: {
-        ...authHeader(adminToken),
+        ...authHeader(appToken),
         'Content-Type': 'application/json',
         'If-Match': String(created.version),
       },
@@ -480,18 +536,18 @@ describe('Optimistic concurrency', () => {
   test('DELETE by path with stale If-Match returns 409', async () => {
     await fetch(`${baseUrl}/api/docs/concur/delpath`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { v: 1 } }),
     })
     await fetch(`${baseUrl}/api/docs/concur/delpath`, {
       method: 'PUT',
-      headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
+      headers: { ...authHeader(appToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { v: 2 } }),
     })
 
     const res = await fetch(`${baseUrl}/api/docs?path=concur/delpath`, {
       method: 'DELETE',
-      headers: { ...authHeader(adminToken), 'If-Match': '1' },
+      headers: { ...authHeader(appToken), 'If-Match': '1' },
     })
     expect(res.status).toBe(409)
     const data = await res.json()
@@ -500,11 +556,83 @@ describe('Optimistic concurrency', () => {
 
   test('list emits prefix echo and order', async () => {
     const res = await fetch(`${baseUrl}/api/docs?prefix=notes`, {
-      headers: authHeader(adminToken),
+      headers: authHeader(appToken),
     })
     expect(res.status).toBe(200)
     const data = await res.json()
     expect(data.prefix).toBe('notes')
     expect(data.order).toBe('path_asc')
+  })
+})
+
+describe('Documents require a project', () => {
+  const put = (path: string, token: string | null) =>
+    fetch(`${baseUrl}/api/docs/${path}`, {
+      method: 'PUT',
+      headers: { ...(token ? authHeader(token) : {}), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { ok: true } }),
+    })
+
+  test('an account key without ?project= gets 400', async () => {
+    const res = await put('notes/a', adminToken)
+    expect(res.status).toBe(400)
+    expect((await res.json()).message).toContain('project')
+
+    const list = await fetch(`${baseUrl}/api/docs`, { headers: authHeader(adminToken) })
+    expect(list.status).toBe(400)
+  })
+
+  test('an account key can work in its own project with ?project=', async () => {
+    expect((await put(`notes/a?project=${projectId}`, adminToken)).status).toBe(201)
+    const list = await fetch(`${baseUrl}/api/docs?project=${projectId}`, {
+      headers: authHeader(adminToken),
+    })
+    expect((await list.json()).docs.map((d: { path: string }) => d.path)).toEqual(['notes/a'])
+  })
+
+  test("another user's account key cannot write into my project", async () => {
+    const other = await createUser('github-789', 'o@example.com', 'Other')
+    const otherAdmin = generateToken()
+    await createApiToken(other.id, 'Other Admin', otherAdmin, 'admin')
+    expect((await put(`notes/a?project=${projectId}`, otherAdmin)).status).toBe(403)
+  })
+
+  test('an unknown project returns 404', async () => {
+    expect((await put('notes/a?project=nope', adminToken)).status).toBe(404)
+    const read = await fetch(`${baseUrl}/api/docs?path=notes/a&project=nope`)
+    expect(read.status).toBe(404)
+  })
+
+  test('anonymous public reads still work with ?project=', async () => {
+    await put('feed/latest', appToken)
+    const res = await fetch(`${baseUrl}/api/docs?path=feed/latest&project=${projectId}`)
+    expect(res.status).toBe(200)
+    expect((await res.json()).content).toEqual({ ok: true })
+  })
+
+  test('secret writes need no project', async () => {
+    const doc = await upsertDocument(
+      'shared/board',
+      userRecord.id,
+      '{}',
+      'public_read_secret_write',
+      's3cret',
+      2,
+      projectId,
+    )
+    const res = await fetch(`${baseUrl}/api/docs/${doc.path}?secret=s3cret`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { v: 2 } }),
+    })
+    expect(res.status).toBe(200)
+  })
+})
+
+describe('Health', () => {
+  test('GET /api/health answers without auth', async () => {
+    const res = await fetch(`${baseUrl}/api/health`)
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ status: 'ok' })
   })
 })

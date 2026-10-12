@@ -79,6 +79,20 @@
         # pm2 lives under nvm, which a non-interactive shell doesn't put on PATH.
         PATH: '{{ node_bin_dir }}:{{ ansible_env.PATH }}'
       block:
+        - name: Recreate the pm2 process if its entry script changed
+          # pm2 restart keeps a process's original script path, so a renamed
+          # entry file (e.g. index.ts -> server.ts) needs a delete and start.
+          shell: |
+            want="{{ project_root }}/$(bun -e "console.log(require('./ecosystem.config.cjs').apps[0].script)")"
+            have=$(pm2 jlist | bun -e "const l = await Bun.stdin.json(); console.log(l.find((a) => a.name === '{{ pm2_name }}')?.pm2_env.pm_exec_path ?? '')")
+            if [ -n "$have" ] && [ "$have" != "$want" ]; then
+              pm2 delete {{ pm2_name }} && echo "recreated: $have -> $want"
+            fi
+          args:
+            chdir: '{{ project_root }}'
+          register: pm2_recreate
+          changed_when: "'recreated' in pm2_recreate.stdout"
+
         - name: Start or restart from ecosystem.config.cjs
           command: pm2 startOrRestart ecosystem.config.cjs --update-env
           args:
@@ -89,14 +103,12 @@
       tags: [pm2, restart]
 
     - name: 7. Verify the app answers on its port
-      # /api/me without a token returns 401 + {"code":"unauthenticated"} once
-      # the server has booted and the routes are mounted.
+      # /api/health needs no auth and skips the rate limiter.
       uri:
-        url: 'http://127.0.0.1:{{ app_port }}/api/me'
-        status_code: 401
+        url: 'http://127.0.0.1:{{ app_port }}/api/health'
         timeout: 10
       register: local_check
-      failed_when: local_check.status != 401 or (local_check.json.code | default('')) != 'unauthenticated'
+      failed_when: (local_check.json.status | default('')) != 'ok'
       retries: 6
       delay: 5
       until: local_check is succeeded
@@ -118,8 +130,7 @@
 
         - name: API answers
           uri:
-            url: '{{ public_url }}/api/me'
-            status_code: 401
+            url: '{{ public_url }}/api/health'
           register: public_api
           retries: 3
           delay: 5

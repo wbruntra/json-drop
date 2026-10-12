@@ -11,66 +11,63 @@ type Token = {
   created_at: string
 }
 
-type Project = {
-  id: string
-  name: string
-}
-
 type Props = {
+  // A project's keys, or null for account keys.
   projectId: string | null
+  onChange?: () => void
 }
 
-const SCOPE_BADGE = {
-  fontSize: '0.65rem',
-  fontWeight: '700',
-  letterSpacing: '0.05em',
-  textTransform: 'uppercase' as const,
-  padding: '0.15rem 0.4rem',
-  borderRadius: '4px',
-  border: '1px solid var(--border)',
-  color: 'var(--text-secondary)',
-  background: 'var(--bg-tertiary)',
+const PROJECT_OPTIONS = [
+  {
+    value: 'read_write',
+    label: 'Read/write',
+    help: 'For trusted code: servers, scripts, your own app.',
+  },
+  { value: 'read', label: 'Read only', help: 'Safe to ship in a public frontend.' },
+]
+const ACCOUNT_OPTIONS = [
+  { value: 'admin', label: 'Account', help: 'Manages all projects and keys.' },
+]
+
+const PERMISSION_LABELS: Record<string, string> = {
+  read: 'read only',
+  read_write: 'read/write',
+  write: 'write (legacy)',
+  admin: 'account',
 }
 
-export function TokenManager({ projectId }: Props) {
+export function TokenManager({ projectId, onChange }: Props) {
+  const options = projectId ? PROJECT_OPTIONS : ACCOUNT_OPTIONS
   const [tokens, setTokens] = useState<Token[]>([])
-  const [projects, setProjects] = useState<Map<string, string>>(new Map())
   const [newName, setNewName] = useState('')
-  // Account keys (admin) are never tied to a project; project keys always are.
-  const permissionOptions = projectId
-    ? [
-        { value: 'read_write', label: 'Read/Write' },
-        { value: 'read', label: 'Read only' },
-      ]
-    : [{ value: 'admin', label: 'Account (admin)' }]
-  const [newPermissions, setNewPermissions] = useState(permissionOptions[0]!.value)
+  const [newPermissions, setNewPermissions] = useState(options[0]!.value)
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [justCreated, setJustCreated] = useState<string | null>(null)
   const { copiedId, copy } = useCopy()
 
   const fetchData = async () => {
-    const [tokenRes, projRes] = await Promise.all([api('/api/tokens'), api('/api/projects')])
-    if (tokenRes.ok) setTokens(await tokenRes.json())
-    if (projRes.ok) {
-      const list: Project[] = await projRes.json()
-      setProjects(new Map(list.map((p) => [p.id, p.name])))
+    const query = projectId ? `?project=${encodeURIComponent(projectId)}` : ''
+    const res = await api(`/api/tokens${query}`)
+    if (res.ok) {
+      const all: Token[] = await res.json()
+      setTokens(projectId ? all : all.filter((t) => t.project_id === null))
+    } else {
+      setError('Failed to load keys')
     }
     setLoading(false)
   }
 
   useEffect(() => {
     fetchData()
-  }, [])
-
-  useEffect(() => {
-    setNewPermissions(permissionOptions[0]!.value)
   }, [projectId])
 
-  const handleCreate = async () => {
+  const handleCreate = async (e: Event) => {
+    e.preventDefault()
     const name = newName.trim()
     if (!name) {
-      setError('Give the token a name so you can recognize it later.')
+      setError('Give the key a name so you can recognize it later.')
       return
     }
     setCreating(true)
@@ -86,101 +83,95 @@ export function TokenManager({ projectId }: Props) {
     })
     setCreating(false)
     if (res.ok) {
+      const data = await res.json()
+      setJustCreated(data.token)
       setNewName('')
-      fetchData()
+      await fetchData()
+      onChange?.()
     } else {
       const data = await res.json().catch(() => ({}))
-      setError(data.message || 'Failed to create token')
+      setError(data.message || 'Failed to create key')
     }
   }
 
   const handleDelete = async (id: number) => {
-    if (!confirm('Revoke this token? Apps using it will lose access immediately.')) return
+    if (!confirm('Revoke this key? Anything using it will lose access immediately.')) return
     const res = await api(`/api/tokens/${id}`, { method: 'DELETE' })
-    if (res.ok) fetchData()
+    if (res.ok) {
+      await fetchData()
+      onChange?.()
+    }
   }
 
-  if (loading) return <div>Loading tokens...</div>
+  if (loading) return <p class="empty">Loading keys…</p>
 
-  // Order: tokens for this project first, then the rest.
-  const sorted = [...tokens].sort((a, b) => {
-    const aProj = a.project_id === projectId ? 0 : 1
-    const bProj = b.project_id === projectId ? 0 : 1
-    if (aProj !== bProj) return aProj - bProj
-    return a.id - b.id
-  })
+  const selected = options.find((o) => o.value === newPermissions) ?? options[0]!
 
   return (
     <div class="token-manager">
-      <div class="create-token">
+      <form class="create-token" onSubmit={handleCreate}>
         <input
           type="text"
-          placeholder="Token name (e.g. frontend-app)"
+          aria-label="Key name"
+          placeholder={projectId ? 'Key name (e.g. web-app)' : 'Key name (e.g. backup-script)'}
           value={newName}
           onInput={(e) => setNewName((e.target as HTMLInputElement).value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') handleCreate()
-          }}
         />
-        <select
-          value={newPermissions}
-          onChange={(e) => setNewPermissions((e.target as HTMLSelectElement).value)}
-        >
-          {permissionOptions.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-        <button class="create-btn" onClick={handleCreate} disabled={creating}>
-          {creating ? 'Creating...' : 'Create Token'}
-        </button>
-      </div>
-      {error && <span class="project-selector-error">{error}</span>}
-      <p
-        class="empty"
-        style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}
-      >
-        {projectId ? (
-          <>
-            New key can only access <strong>this project</strong>. Use it in your app.
-          </>
-        ) : (
-          <>
-            New key is an <strong>account key</strong>: it can manage all projects and keys. Keep
-            it out of frontend code.
-          </>
+        {options.length > 1 && (
+          <select
+            aria-label="Permissions"
+            value={newPermissions}
+            onChange={(e) => setNewPermissions((e.target as HTMLSelectElement).value)}
+          >
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
         )}
-      </p>
+        <button class="create-btn" type="submit" disabled={creating}>
+          {creating ? 'Creating…' : 'Create key'}
+        </button>
+      </form>
+      <p class="form-help">{selected.help}</p>
+      {error && <span class="project-selector-error">{error}</span>}
+
+      {justCreated && (
+        <div class="new-key">
+          <strong>New key created.</strong> Copy it into your app's config now.
+          <div class="token-row">
+            <code class="token-display">{justCreated}</code>
+            <button class="copy-btn" onClick={() => copy(justCreated, 'new-key')}>
+              {copiedId === 'new-key' ? 'Copied!' : 'Copy'}
+            </button>
+            <button class="dismiss-btn" onClick={() => setJustCreated(null)}>
+              Done
+            </button>
+          </div>
+        </div>
+      )}
 
       <div class="token-list">
-        {sorted.length === 0 ? (
-          <p class="empty">No tokens yet. Create one above.</p>
+        {tokens.length === 0 ? (
+          <p class="empty">
+            {projectId
+              ? 'No keys for this project yet.'
+              : 'No account keys. The dashboard does not need one.'}
+          </p>
         ) : (
-          sorted.map((token) => {
+          tokens.map((token) => {
             const copyId = `tok-${token.id}`
             return (
               <div key={token.id} class="token-item">
                 <div class="token-info">
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      flexWrap: 'wrap',
-                    }}
-                  >
+                  <div class="token-title">
                     <strong>{token.name}</strong>
-                    <span class={`permissions ${token.permissions}`}>{token.permissions}</span>
-                    {token.project_id ? (
-                      <span style={SCOPE_BADGE}>
-                        {projects.get(token.project_id) || token.project_id}
-                      </span>
-                    ) : (
-                      <span style={SCOPE_BADGE}>Global</span>
-                    )}
+                    <span class={`permissions ${token.permissions}`}>
+                      {PERMISSION_LABELS[token.permissions] ?? token.permissions}
+                    </span>
                   </div>
-                  <div class="token-row" style={{ marginTop: '0.4rem' }}>
+                  <div class="token-row">
                     <code class="token-display">{token.token}</code>
                     <button onClick={() => copy(token.token, copyId)} class="copy-btn">
                       {copiedId === copyId ? 'Copied!' : 'Copy'}

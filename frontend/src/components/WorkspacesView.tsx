@@ -21,9 +21,10 @@ type User = {
 
 type Props = {
   user: User
+  projectId: string
 }
 
-export function WorkspacesView({ user }: Props) {
+export function WorkspacesView({ user, projectId }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detail, setDetail] = useState<WorkspaceDetail | null>(null)
   const [loading, setLoading] = useState(false)
@@ -54,13 +55,16 @@ export function WorkspacesView({ user }: Props) {
   return (
     <div class="workspace-layout">
       <div class="section workspace-sidebar-section">
-        <WorkspaceList selectedId={selectedId} onSelect={setSelectedId} />
+        <WorkspaceList projectId={projectId} selectedId={selectedId} onSelect={setSelectedId} />
       </div>
 
       <div class="workspace-detail">
         {!selectedId ? (
           <div class="section">
-            <p class="empty">Select or create a workspace to get started.</p>
+            <p class="empty">
+              Workspaces let your app's users share documents with each other: each has its own
+              members (owner, admin, editor, viewer) and invite links. Select or create one.
+            </p>
           </div>
         ) : loading ? (
           <div class="section">

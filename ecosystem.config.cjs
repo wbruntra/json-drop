@@ -2,7 +2,7 @@ module.exports = {
   apps: [
     {
       name: 'json-drop',
-      script: 'index.ts',
+      script: 'server.ts',
       interpreter: 'bun',
       cwd: __dirname,
       watch: false,

@@ -1,17 +1,17 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test'
-import { createServer } from './server'
+import { createApp } from './app'
 import { generateToken } from './middleware'
 import { initDatabase } from './kysely-db'
 import { createUser, createApiToken, createProject, getProject } from './services'
 import { createSessionForUser, createAnonymousSession } from './services/sessions'
 
-let server: ReturnType<typeof createServer>
+let server: ReturnType<typeof Bun.serve>
 let baseUrl: string
 let adminToken: string
 let userId: number
 
 beforeAll(() => {
-  server = createServer({ port: 0 })
+  server = Bun.serve({ port: 0, fetch: createApp().fetch })
   baseUrl = `http://localhost:${server.port}`
 })
 
@@ -181,18 +181,23 @@ describe('Path addressing on /api/docs', () => {
   })
 
   test('GET /api/docs?path=… returns 404 for missing path', async () => {
-    const res = await fetch(`${baseUrl}/api/docs?path=nope`, { headers: authHeader(adminToken) })
+    const p = await createProject(userId, 'P')
+    const res = await fetch(`${baseUrl}/api/docs?path=nope&project=${p.id}`, {
+      headers: authHeader(adminToken),
+    })
     expect(res.status).toBe(404)
   })
 
   test('DELETE /api/docs?path=… deletes a doc at that path', async () => {
-    await fetch(`${baseUrl}/api/docs/by-path`, {
+    const p = await createProject(userId, 'P')
+    const q = `project=${p.id}`
+    await fetch(`${baseUrl}/api/docs/by-path?${q}`, {
       method: 'PUT',
       headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: { x: 1 } }),
     })
 
-    const res = await fetch(`${baseUrl}/api/docs?path=by-path`, {
+    const res = await fetch(`${baseUrl}/api/docs?path=by-path&${q}`, {
       method: 'DELETE',
       headers: authHeader(adminToken),
     })
@@ -200,7 +205,7 @@ describe('Path addressing on /api/docs', () => {
     const data = await res.json()
     expect(data.deleted).toBe(true)
 
-    const after = await fetch(`${baseUrl}/api/docs?path=by-path`, {
+    const after = await fetch(`${baseUrl}/api/docs?path=by-path&${q}`, {
       headers: authHeader(adminToken),
     })
     expect(after.status).toBe(404)
@@ -381,5 +386,59 @@ describe('Dashboard sessions', () => {
     expect((await fetch(`${baseUrl}/api/me`, { headers: authHeader(adminToken) })).status).toBe(
       200,
     )
+  })
+})
+
+describe('Project details', () => {
+  test('GET /api/projects includes doc, key and last-write stats', async () => {
+    const p = await createProject(userId, 'Stats')
+    const key = generateToken()
+    await createApiToken(userId, 'k', key, 'read_write', p.id)
+    await fetch(`${baseUrl}/api/docs/notes/a`, {
+      method: 'PUT',
+      headers: { ...authHeader(key), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { a: 1 } }),
+    })
+
+    const [stats] = await (
+      await fetch(`${baseUrl}/api/projects`, { headers: authHeader(adminToken) })
+    ).json()
+    expect(stats.doc_count).toBe(1)
+    expect(stats.key_count).toBe(1)
+    expect(stats.last_write_at).toBeTruthy()
+  })
+
+  test('GET /api/projects/:id returns one project; 404 for someone else’s', async () => {
+    const mine = await createProject(userId, 'Mine')
+    const other = await createUser('github-9', 'n@e.com', 'N')
+    const theirs = await createProject(other.id, 'Theirs')
+
+    const ok = await fetch(`${baseUrl}/api/projects/${mine.id}`, {
+      headers: authHeader(adminToken),
+    })
+    expect(ok.status).toBe(200)
+    expect((await ok.json()).name).toBe('Mine')
+
+    const no = await fetch(`${baseUrl}/api/projects/${theirs.id}`, {
+      headers: authHeader(adminToken),
+    })
+    expect(no.status).toBe(404)
+  })
+
+  test('PATCH /api/projects/:id renames; project keys cannot', async () => {
+    const p = await createProject(userId, 'Old')
+    const key = generateToken()
+    await createApiToken(userId, 'k', key, 'read_write', p.id)
+    const patch = (token: string) =>
+      fetch(`${baseUrl}/api/projects/${p.id}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(token), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'New' }),
+      })
+
+    expect((await patch(key)).status).toBe(403)
+    const res = await patch(adminToken)
+    expect(res.status).toBe(200)
+    expect((await res.json()).name).toBe('New')
   })
 })

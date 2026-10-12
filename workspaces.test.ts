@@ -1,12 +1,12 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test'
-import { createServer } from './server'
+import { createApp } from './app'
 import { initDatabase } from './kysely-db'
 
-let server: ReturnType<typeof createServer>
+let server: ReturnType<typeof Bun.serve>
 let baseUrl: string
 
 beforeAll(() => {
-  server = createServer({ port: 0 })
+  server = Bun.serve({ port: 0, fetch: createApp().fetch })
   baseUrl = `http://localhost:${server.port}`
 })
 

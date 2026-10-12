@@ -1,17 +1,18 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test'
 import { JsonDrop, JsonDropError } from './src/index'
-import { createServer } from '../server'
+import { createApp } from '../app'
 import { generateToken } from '../middleware'
 import { initDatabase } from '../kysely-db'
 import { createUser, createApiToken, createProject } from '../services'
 
-let server: ReturnType<typeof createServer>
+let server: ReturnType<typeof Bun.serve>
 let baseUrl: string
 let adminToken: string
 let userId: number
+let projectId: string
 
 beforeAll(() => {
-  server = createServer({ port: 0 })
+  server = Bun.serve({ port: 0, fetch: createApp().fetch })
   baseUrl = `http://localhost:${server.port}`
 })
 
@@ -25,6 +26,7 @@ beforeEach(async () => {
   userId = user.id
   adminToken = generateToken()
   await createApiToken(userId, 'Admin', adminToken, 'admin')
+  projectId = (await createProject(userId, 'SDK App')).id
 })
 
 describe('JsonDrop SDK', () => {
@@ -42,17 +44,17 @@ describe('JsonDrop SDK', () => {
     expect(p.id).toBeDefined()
 
     const list = await db.projects.list()
-    expect(list.length).toBe(1)
+    expect(list.length).toBe(2)
 
     const res = await db.projects.delete(p.id)
     expect(res.deleted).toBe(true)
 
     const after = await db.projects.list()
-    expect(after.length).toBe(0)
+    expect(after.length).toBe(1)
   })
 
   test('collection.add + list', async () => {
-    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const db = new JsonDrop({ baseUrl, token: adminToken, project: projectId })
     const notes = db.collection('notes')
     const a = await notes.add({ title: 'A' })
     const b = await notes.add({ title: 'B' })
@@ -65,7 +67,7 @@ describe('JsonDrop SDK', () => {
   })
 
   test('doc.set / get / delete by path', async () => {
-    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const db = new JsonDrop({ baseUrl, token: adminToken, project: projectId })
     const alice = db.doc('users/alice')
     const created = await alice.set({ name: 'Alice' })
     expect(created.path).toBe('users/alice')
@@ -81,7 +83,7 @@ describe('JsonDrop SDK', () => {
   })
 
   test('id-based get / delete via db.get / db.delete', async () => {
-    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const db = new JsonDrop({ baseUrl, token: adminToken, project: projectId })
     const created = await db.doc('short/path').set({ v: 1 })
     const got = await db.get(created.id)
     expect(got.id).toBe(created.id)
@@ -124,7 +126,7 @@ describe('JsonDrop SDK', () => {
   })
 
   test('JsonDropError carries status and message on 4xx', async () => {
-    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const db = new JsonDrop({ baseUrl, token: adminToken, project: projectId })
     try {
       await db.doc('nonexistent').get()
       throw new Error('expected to throw')
@@ -136,7 +138,7 @@ describe('JsonDrop SDK', () => {
   })
 
   test('doc payloads include a version field that bumps on set', async () => {
-    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const db = new JsonDrop({ baseUrl, token: adminToken, project: projectId })
     const ref = db.doc('ver/doc')
     const created = await ref.set({ n: 1 })
     expect(created.version).toBe(1)
@@ -151,7 +153,7 @@ describe('JsonDrop SDK', () => {
   })
 
   test('set() with stale ifMatch throws a conflict error', async () => {
-    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const db = new JsonDrop({ baseUrl, token: adminToken, project: projectId })
     const ref = db.doc('ver/conflict')
     await ref.set({ v: 1 })
     await ref.set({ v: 2 }) // bumps to version 2
@@ -167,7 +169,7 @@ describe('JsonDrop SDK', () => {
   })
 
   test('delete() with stale ifMatch throws a conflict error', async () => {
-    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const db = new JsonDrop({ baseUrl, token: adminToken, project: projectId })
     const ref = db.doc('ver/delconflict')
     await ref.set({ v: 1 })
     await ref.set({ v: 2 }) // version 2
@@ -182,7 +184,7 @@ describe('JsonDrop SDK', () => {
   })
 
   test('add() and set() return a bound ref that can read and delete', async () => {
-    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const db = new JsonDrop({ baseUrl, token: adminToken, project: projectId })
     const notes = db.collection('notes')
     const created = await notes.add({ title: 'hello' })
     expect(created.ref).toBeDefined()
@@ -199,7 +201,7 @@ describe('JsonDrop SDK', () => {
   })
 
   test('list() echoes the effective prefix', async () => {
-    const db = new JsonDrop({ baseUrl, token: adminToken })
+    const db = new JsonDrop({ baseUrl, token: adminToken, project: projectId })
     const notes = db.collection('expenses')
     await notes.add({ name: 'Spain trip' })
     const list = await notes.list()

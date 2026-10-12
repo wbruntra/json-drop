@@ -1,13 +1,13 @@
 {
   "name": "json-drop",
-  "module": "index.ts",
+  "module": "server.ts",
   "type": "module",
   "private": true,
   "scripts": {
     "dev": "NODE_ENV=development bun run --parallel dev:backend dev:frontend",
-    "dev:backend": "NODE_ENV=development bun --hot index.ts",
+    "dev:backend": "NODE_ENV=development bun --hot server.ts",
     "dev:frontend": "cd frontend && bun run dev",
-    "start": "bun index.ts",
+    "start": "bun server.ts",
     "migrate": "bun migrate.ts",
     "codegen": "bun run codegen.ts",
     "build:frontend": "bun build frontend/index.html --outdir frontend/dist --minify && cp -r frontend/public/* frontend/dist/",

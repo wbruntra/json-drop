@@ -20,8 +20,8 @@ A Bun + Hono + Kysely + SQLite backend pattern for API servers.
 ## Project Structure
 
 ```
-├── index.ts              # Entry point: init DB, start server
-├── server.ts             # Hono app + Bun.serve wrapper
+├── app.ts                # Builds the Hono app (createApp) and exports a default instance
+├── server.ts             # Entry point: init DB, Bun.serve({ fetch: app.fetch })
 ├── schemas.ts            # Zod validation schemas
 ├── middleware.ts          # generateToken() utility only
 ├── middleware/
@@ -104,7 +104,7 @@ Single module that owns the connection:
 - `getRawDb()` — returns `bun:sqlite` Database for migrations and legacy sync code
 
 ```ts
-// index.ts
+// server.ts
 await initDatabase(process.env.DATABASE_URL || 'db.sqlite')
 ```
 
@@ -277,31 +277,41 @@ PUT /api/docs/test-doc 201 4ms user=1
 GET /api/docs/public-doc 200 0ms
 ```
 
-## Entry Point (`index.ts`)
+## App and Entry Point (`app.ts`, `server.ts`)
+
+`app.ts` only builds the app: middleware, routes and `GET /api/health`. It never
+listens on a port. `server.ts` is the process entry (what pm2 runs, like
+Express's `bin/www`):
 
 ```ts
+import { initDatabase } from './kysely-db'
+import app from './app'
+
 await initDatabase(process.env.DATABASE_URL || 'db.sqlite')
 
-const server = createServer({
+const server = Bun.serve({
   port: Number(process.env.PORT) || 3000,
-  homepage, // Bun HTMLBundle for frontend
-  development: isDev ? { hmr: true, console: true } : false,
+  fetch: app.fetch,
 })
 
 console.log(`Listening on http://localhost:${server.port}`)
 ```
+
+Never import `server.ts` from tests or other modules; importing it starts a server.
 
 ## Testing Pattern
 
 Uses `bun test`. Each test gets a fresh in-memory database:
 
 ```ts
-import { createServer } from './server'
+import { createApp } from './app'
 import { generateToken } from './middleware'
-import { initDatabase, createUser, createApiToken } from './database'
+import { initDatabase } from './kysely-db'
+import { createUser, createApiToken } from './services'
 
 beforeAll(() => {
-  server = createServer({ port: 0 }) // random port
+  // A fresh app per test file, so rate-limit state isn't shared.
+  server = Bun.serve({ port: 0, fetch: createApp().fetch }) // random port
   baseUrl = `http://localhost:${server.port}`
 })
 
@@ -319,7 +329,7 @@ Key points:
 
 - Real server, real HTTP requests via `fetch`
 - `initDatabase(':memory:')` gives each test a clean DB
-- `createServer({ port: 0 })` uses a random available port
+- `Bun.serve({ port: 0, fetch: createApp().fetch })` uses a random available port
 - `{ silent: true }` suppresses migration logging in test output
 - Tokens are stored raw — pass the raw token to both `createApiToken` and the `Authorization` header
 
@@ -372,5 +382,5 @@ bun add -d @types/bun
 # 4. Run codegen, then migrate, then start
 bun run codegen
 bun run migrate
-bun --hot index.ts
+bun --hot server.ts
 ```

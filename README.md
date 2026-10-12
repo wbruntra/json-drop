@@ -15,7 +15,7 @@ Open `http://localhost:3000` — click "Sign in with GitHub" (dev mode auto-crea
 
 ## How It Works
 
-**Authentication** is token-based. When you sign in with GitHub (or the dev login), the server creates a user record and an admin API token. The token is stored in your browser's `localStorage` and sent as `Authorization: Bearer <token>` on every request. No cookies, no sessions — just tokens.
+**Authentication** is token-based and sent as `Authorization: Bearer <token>`. Signing in with GitHub (or the dev login) starts a revocable dashboard session, stored in the browser's `localStorage`; logging out revokes it. Apps use API keys instead.
 
 **Documents** are arbitrary JSON blobs with one of three access modes:
 
@@ -25,7 +25,7 @@ Open `http://localhost:3000` — click "Sign in with GitHub" (dev mode auto-crea
 | `public_read_secret_write` | Anyone (no auth)                | Owner, API token, or secret key |
 | `private`                  | Owner, API token, or secret key | Owner, API token, or secret key |
 
-**API tokens** can have different permissions (`read`, `write`, `read_write`, `admin`) and are revocable. The token you get on sign-in has `admin` permissions.
+**API keys** come in two kinds. **Project keys** (`read` or `read_write`) belong to one project and are what apps use. **Account keys** (`admin`, no project) can create and delete projects and manage keys, like the dashboard. Signing in starts a dashboard session; it does not create a key.
 
 ## Usage Guide
 
@@ -125,7 +125,7 @@ When you create a non-public document, the response includes an `access_secret`.
 
 ### Projects
 
-Documents live inside a **project**. The default scope is the implicit "global" project (i.e. the owner themselves). Create real projects to share scopes between apps, isolate data per environment, or hand out scoped tokens:
+Every document lives inside a **project** (one per app). A request is scoped by its key: a project key only reaches its own project, and an account key (or the dashboard) names the project with `?project=<id>`. A document request with neither gets `400`. Create a project, then mint keys for it:
 
 ```bash
 curl -X POST <base>/api/projects \
@@ -377,27 +377,19 @@ In development, the Bun server serves the frontend directly with HMR — no buil
 ## Project Structure
 
 ```
-├── index.ts               # Bun server entry
-├── database.ts            # SQLite queries
-├── middleware.ts          # CORS, rate limiting, auth extraction, logging
-├── auth.ts               # GitHub OAuth helpers
-├── migrate.ts             # Migration runner
-├── migrations/
-│   └── 001_initial.sql    # Initial schema
-├── routes/
-│   ├── auth.ts            # GitHub OAuth & logout
-│   ├── dev.ts             # Dev-only login & token creation
-│   ├── me.ts              # Current user endpoint
-│   ├── tokens.ts          # API token CRUD
-│   └── docs.ts            # Document CRUD + access control
-├── frontend/
-│   ├── index.html         # HTML entry (bundled by Bun)
-│   └── src/
-│       ├── api.ts         # API fetch helper
-│       ├── app.tsx        # App root
-│       ├── main.tsx       # Entry point
-│       └── components/    # UI components
-└── api.test.ts            # API tests
+├── app.ts                 # Builds the Hono app (routes, middleware, /api/health)
+├── server.ts              # Entry point: init DB, Bun.serve (pm2 runs this)
+├── ecosystem.config.cjs   # pm2 process definition (name, script, PORT)
+├── kysely-db.ts           # DB lifecycle: initDatabase(), getDb()
+├── migrate.ts             # Migration runner (bun run migrate)
+├── migrations/            # Kysely migrations
+├── routes/                # HTTP handlers: parse, authorize, call a service
+├── services/              # All database access and business logic
+├── schemas.ts             # Zod request schemas
+├── frontend/              # Preact dashboard (Vite in dev, bun build for prod)
+├── sdk/                   # @wbruntra/json-drop client SDK
+├── ansible/               # Deploy playbooks (bun run deploy)
+└── *.test.ts              # API tests (bun test)
 ```
 
 ## Environment Variables

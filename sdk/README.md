@@ -47,7 +47,7 @@ import { JsonDrop } from '@wbruntra/json-drop'
 
 const db = new JsonDrop({
   baseUrl: 'https://your-jsondrop-server.com',
-  token: 'jd_…', // optional: owner or project-scoped token
+  token: 'jd_…', // optional: a project key (or an account key plus `project`)
 })
 
 // Get the current user
@@ -206,7 +206,7 @@ await ref.delete()
 
 - `baseUrl` — server URL (required).
 - `token` — bearer token (optional). If set, the SDK uses it for `Authorization`.
-- `project` — project id to scope anonymous requests to (optional).
+- `project` — project id for document requests. Required with an account key or no key; ignored for a project key, which is already scoped.
 - `secret` — default access secret for unauthenticated reads/writes (optional).
 - `fetch` — custom `fetch` implementation (optional, defaults to global).
 

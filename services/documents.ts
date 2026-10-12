@@ -5,8 +5,10 @@ import type { Document } from '../kysely-db'
 
 const translator = short.createTranslator()
 
+// Documents outside workspaces always belong to a project. userId narrows to
+// the project owner's documents; omit it for anonymous public reads.
 export type DocScope = {
-  projectId?: string | null
+  projectId: string
   userId?: number
 }
 
@@ -94,52 +96,30 @@ export async function getDocumentByPathAndSecret(
   return result ?? null
 }
 
-export async function getDocumentByPath(path: string, userId: number): Promise<Document | null> {
-  const result = await getDb()
-    .selectFrom('documents')
-    .selectAll()
-    .where('path', '=', path)
-    .where('user_id', '=', userId)
-    .where('project_id', 'is', null)
-    .executeTakeFirst()
-  return result ?? null
-}
-
 export async function getDocumentByScopeAndPath(
   scope: DocScope,
   path: string,
 ): Promise<Document | null> {
   const db = getDb()
-  let query = db.selectFrom('documents').selectAll().where('path', '=', path)
-  if (scope.projectId) {
-    query = query.where('project_id', '=', scope.projectId)
-    if (scope.userId) {
-      query = query.where('user_id', '=', scope.userId)
-    }
-  } else {
-    query = query.where('project_id', 'is', null)
-    if (scope.userId) {
-      query = query.where('user_id', '=', scope.userId)
-    }
-  }
+  let query = db
+    .selectFrom('documents')
+    .selectAll()
+    .where('path', '=', path)
+    .where('project_id', '=', scope.projectId)
+  if (scope.userId) query = query.where('user_id', '=', scope.userId)
   const result = await query.executeTakeFirst()
   return result ?? null
 }
 
 export async function listDocuments(
   userId: number,
-  options: { projectId?: string | null; prefix?: string } = {},
+  options: { projectId: string; prefix?: string },
 ): Promise<Document[]> {
-  const db = getDb()
-  let query = db.selectFrom('documents').selectAll()
-
-  if (options.projectId) {
-    query = query.where('project_id', '=', options.projectId)
-    query = query.where('user_id', '=', userId)
-  } else {
-    query = query.where('project_id', 'is', null)
-    query = query.where('user_id', '=', userId)
-  }
+  let query = getDb()
+    .selectFrom('documents')
+    .selectAll()
+    .where('project_id', '=', options.projectId)
+    .where('user_id', '=', userId)
 
   if (options.prefix) {
     const prefixPattern = options.prefix.endsWith('/')
@@ -300,18 +280,11 @@ export async function deleteDocumentByScopeAndPath(
   path: string,
 ): Promise<boolean> {
   const db = getDb()
-  let query = db.deleteFrom('documents').where('path', '=', path)
-  if (scope.projectId) {
-    query = query.where('project_id', '=', scope.projectId)
-    if (scope.userId) {
-      query = query.where('user_id', '=', scope.userId)
-    }
-  } else {
-    query = query.where('project_id', 'is', null)
-    if (scope.userId) {
-      query = query.where('user_id', '=', scope.userId)
-    }
-  }
+  let query = db
+    .deleteFrom('documents')
+    .where('path', '=', path)
+    .where('project_id', '=', scope.projectId)
+  if (scope.userId) query = query.where('user_id', '=', scope.userId)
 
   const result = await query.executeTakeFirst()
   return result.numDeletedRows > 0
