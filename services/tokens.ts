@@ -21,13 +21,17 @@ export async function createApiToken(
     .executeTakeFirstOrThrow()
 }
 
-export async function listApiTokens(userId: number): Promise<ApiToken[]> {
-  return getDb()
+export async function listApiTokens(
+  userId: number,
+  projectId: string | null = null,
+): Promise<ApiToken[]> {
+  let query = getDb()
     .selectFrom('api_tokens')
     .selectAll()
     .where('user_id', '=', userId)
     .where('revoked_at', 'is', null)
-    .execute()
+  if (projectId) query = query.where('project_id', '=', projectId)
+  return query.execute()
 }
 
 export async function getApiToken(token: string): Promise<ApiToken | null> {

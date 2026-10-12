@@ -1,6 +1,7 @@
 import type { Context } from 'hono'
 import { createUser, createApiToken } from '../services'
 import { generateToken } from '../middleware'
+import { createSessionForUser } from '../services/sessions'
 import { notFound } from './errors'
 
 async function createUserWithToken(): Promise<{ token: string }> {
@@ -26,7 +27,13 @@ export async function handleDevLogin(c: Context): Promise<Response> {
     return notFound(c, 'Not available in production')
   }
 
-  const { token } = await createUserWithToken()
+  const mockGithubId = `dev-${Date.now()}`
+  const user = await createUser(
+    mockGithubId,
+    `${mockGithubId}@dev.local`,
+    `Dev User ${Date.now()}`,
+  )
+  const { token } = await createSessionForUser(user.id)
 
   const html = `<!doctype html>
 <html><body><script>

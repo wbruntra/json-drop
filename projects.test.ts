@@ -3,6 +3,7 @@ import { createServer } from './server'
 import { generateToken } from './middleware'
 import { initDatabase } from './kysely-db'
 import { createUser, createApiToken, createProject, getProject } from './services'
+import { createSessionForUser, createAnonymousSession } from './services/sessions'
 
 let server: ReturnType<typeof createServer>
 let baseUrl: string
@@ -239,5 +240,146 @@ describe('Anonymous project access', () => {
 
     const res = await fetch(`${baseUrl}/api/docs?path=secret&project=${p.id}`)
     expect(res.status).toBe(403)
+  })
+})
+
+describe('Account vs project keys', () => {
+  async function postJson(path: string, token: string, body: unknown) {
+    return fetch(`${baseUrl}${path}`, {
+      method: 'POST',
+      headers: { ...authHeader(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  }
+
+  test('a project-scoped admin key cannot manage keys or projects', async () => {
+    const p = await createProject(userId, 'P')
+    const other = await createProject(userId, 'Other')
+    const scopedAdmin = generateToken()
+    await createApiToken(userId, 'legacy scoped admin', scopedAdmin, 'admin', p.id)
+
+    expect((await postJson('/api/tokens', scopedAdmin, { permissions: 'admin' })).status).toBe(403)
+    expect(
+      (await postJson('/api/tokens', scopedAdmin, { permissions: 'read', project_id: other.id }))
+        .status,
+    ).toBe(403)
+    expect((await postJson('/api/projects', scopedAdmin, { name: 'X' })).status).toBe(403)
+    const del = await fetch(`${baseUrl}/api/projects/${other.id}`, {
+      method: 'DELETE',
+      headers: authHeader(scopedAdmin),
+    })
+    expect(del.status).toBe(403)
+  })
+
+  test('a project key cannot list or revoke keys', async () => {
+    const p = await createProject(userId, 'P')
+    const key = generateToken()
+    const record = await createApiToken(userId, 'k', key, 'read_write', p.id)
+
+    const list = await fetch(`${baseUrl}/api/tokens`, { headers: authHeader(key) })
+    expect(list.status).toBe(403)
+    const revoke = await fetch(`${baseUrl}/api/tokens/${record.id}`, {
+      method: 'DELETE',
+      headers: authHeader(key),
+    })
+    expect(revoke.status).toBe(403)
+  })
+
+  test('a project key lists only its own project', async () => {
+    const p = await createProject(userId, 'Mine')
+    await createProject(userId, 'Someone else')
+    const key = generateToken()
+    await createApiToken(userId, 'k', key, 'read', p.id)
+
+    const res = await fetch(`${baseUrl}/api/projects`, { headers: authHeader(key) })
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.map((x: { id: string }) => x.id)).toEqual([p.id])
+  })
+
+  test('admin keys cannot be scoped; project keys must be', async () => {
+    const p = await createProject(userId, 'P')
+    const cases: [unknown, number][] = [
+      [{ permissions: 'admin', project_id: p.id }, 400],
+      [{ permissions: 'read' }, 400],
+      [{ permissions: 'read_write' }, 400],
+      [{ permissions: 'write', project_id: p.id }, 400],
+      [{ permissions: 'admin' }, 201],
+      [{ permissions: 'read', project_id: p.id }, 201],
+    ]
+    for (const [body, status] of cases) {
+      expect((await postJson('/api/tokens', adminToken, body)).status).toBe(status)
+    }
+  })
+
+  test('GET /api/tokens?project= filters to that project', async () => {
+    const a = await createProject(userId, 'A')
+    const b = await createProject(userId, 'B')
+    await createApiToken(userId, 'a-key', generateToken(), 'read', a.id)
+    await createApiToken(userId, 'b-key', generateToken(), 'read', b.id)
+
+    const res = await fetch(`${baseUrl}/api/tokens?project=${a.id}`, {
+      headers: authHeader(adminToken),
+    })
+    const names = (await res.json()).map((t: { name: string }) => t.name)
+    expect(names).toEqual(['a-key'])
+  })
+})
+
+describe('Dashboard sessions', () => {
+  test('a GitHub user session can manage projects and keys', async () => {
+    const { token } = await createSessionForUser(userId)
+    const projRes = await fetch(`${baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { ...authHeader(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'From dashboard' }),
+    })
+    expect(projRes.status).toBe(201)
+    const project = await projRes.json()
+
+    const keyRes = await fetch(`${baseUrl}/api/tokens`, {
+      method: 'POST',
+      headers: { ...authHeader(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ permissions: 'read', project_id: project.id }),
+    })
+    expect(keyRes.status).toBe(201)
+
+    const docRes = await fetch(`${baseUrl}/api/docs/notes/a?project=${project.id}`, {
+      method: 'PUT',
+      headers: { ...authHeader(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: { ok: true } }),
+    })
+    expect(docRes.status).toBe(201)
+  })
+
+  test('an anonymous session cannot manage projects or keys', async () => {
+    const { token } = await createAnonymousSession()
+    const projRes = await fetch(`${baseUrl}/api/projects`, {
+      method: 'POST',
+      headers: { ...authHeader(token), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Nope' }),
+    })
+    expect(projRes.status).toBe(403)
+    const keys = await fetch(`${baseUrl}/api/tokens`, { headers: authHeader(token) })
+    expect(keys.status).toBe(403)
+  })
+
+  test('logout revokes the session', async () => {
+    const { token } = await createSessionForUser(userId)
+    expect((await fetch(`${baseUrl}/api/me`, { headers: authHeader(token) })).status).toBe(200)
+
+    const out = await fetch(`${baseUrl}/api/auth/logout`, {
+      method: 'POST',
+      headers: authHeader(token),
+    })
+    expect(out.status).toBe(200)
+    expect((await fetch(`${baseUrl}/api/me`, { headers: authHeader(token) })).status).toBe(401)
+  })
+
+  test('logout with an API key does not revoke the key', async () => {
+    await fetch(`${baseUrl}/api/auth/logout`, { method: 'POST', headers: authHeader(adminToken) })
+    expect((await fetch(`${baseUrl}/api/me`, { headers: authHeader(adminToken) })).status).toBe(
+      200,
+    )
   })
 })

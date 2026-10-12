@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'preact/hooks'
-import { api, getToken } from '../api'
+import { api } from '../api'
 import { useCopy } from '../useCopy'
 
 type Token = {
@@ -32,24 +32,22 @@ const SCOPE_BADGE = {
   background: 'var(--bg-tertiary)',
 }
 
-const SESSION_BADGE = {
-  ...SCOPE_BADGE,
-  color: 'var(--success-text)',
-  background: 'var(--success-bg)',
-  borderColor: 'var(--success-border)',
-}
-
 export function TokenManager({ projectId }: Props) {
   const [tokens, setTokens] = useState<Token[]>([])
   const [projects, setProjects] = useState<Map<string, string>>(new Map())
   const [newName, setNewName] = useState('')
-  const [newPermissions, setNewPermissions] = useState('read_write')
+  // Account keys (admin) are never tied to a project; project keys always are.
+  const permissionOptions = projectId
+    ? [
+        { value: 'read_write', label: 'Read/Write' },
+        { value: 'read', label: 'Read only' },
+      ]
+    : [{ value: 'admin', label: 'Account (admin)' }]
+  const [newPermissions, setNewPermissions] = useState(permissionOptions[0]!.value)
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const { copiedId, copy } = useCopy()
-
-  const sessionToken = getToken()
 
   const fetchData = async () => {
     const [tokenRes, projRes] = await Promise.all([api('/api/tokens'), api('/api/projects')])
@@ -64,6 +62,10 @@ export function TokenManager({ projectId }: Props) {
   useEffect(() => {
     fetchData()
   }, [])
+
+  useEffect(() => {
+    setNewPermissions(permissionOptions[0]!.value)
+  }, [projectId])
 
   const handleCreate = async () => {
     const name = newName.trim()
@@ -100,11 +102,8 @@ export function TokenManager({ projectId }: Props) {
 
   if (loading) return <div>Loading tokens...</div>
 
-  // Order: current session first, then tokens for this project, then the rest.
+  // Order: tokens for this project first, then the rest.
   const sorted = [...tokens].sort((a, b) => {
-    const aSession = a.token === sessionToken ? 0 : 1
-    const bSession = b.token === sessionToken ? 0 : 1
-    if (aSession !== bSession) return aSession - bSession
     const aProj = a.project_id === projectId ? 0 : 1
     const bProj = b.project_id === projectId ? 0 : 1
     if (aProj !== bProj) return aProj - bProj
@@ -127,9 +126,11 @@ export function TokenManager({ projectId }: Props) {
           value={newPermissions}
           onChange={(e) => setNewPermissions((e.target as HTMLSelectElement).value)}
         >
-          <option value="read">Read</option>
-          <option value="write">Write</option>
-          <option value="read_write">Read/Write</option>
+          {permissionOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
         </select>
         <button class="create-btn" onClick={handleCreate} disabled={creating}>
           {creating ? 'Creating...' : 'Create Token'}
@@ -140,9 +141,16 @@ export function TokenManager({ projectId }: Props) {
         class="empty"
         style={{ fontSize: '0.75rem', color: 'var(--text-muted)', margin: '0.25rem 0 0' }}
       >
-        New token will be scoped to{' '}
-        <strong>{projectId ? 'this project' : 'your global scope'}</strong>. Copy it from the list
-        below — it is stored on the server, not in your browser.
+        {projectId ? (
+          <>
+            New key can only access <strong>this project</strong>. Use it in your app.
+          </>
+        ) : (
+          <>
+            New key is an <strong>account key</strong>: it can manage all projects and keys. Keep
+            it out of frontend code.
+          </>
+        )}
       </p>
 
       <div class="token-list">
@@ -150,7 +158,6 @@ export function TokenManager({ projectId }: Props) {
           <p class="empty">No tokens yet. Create one above.</p>
         ) : (
           sorted.map((token) => {
-            const isSession = token.token === sessionToken
             const copyId = `tok-${token.id}`
             return (
               <div key={token.id} class="token-item">
@@ -172,7 +179,6 @@ export function TokenManager({ projectId }: Props) {
                     ) : (
                       <span style={SCOPE_BADGE}>Global</span>
                     )}
-                    {isSession && <span style={SESSION_BADGE}>Current session</span>}
                   </div>
                   <div class="token-row" style={{ marginTop: '0.4rem' }}>
                     <code class="token-display">{token.token}</code>
@@ -184,11 +190,9 @@ export function TokenManager({ projectId }: Props) {
                     Created {new Date(token.created_at).toLocaleDateString()}
                   </span>
                 </div>
-                {!isSession && (
-                  <button onClick={() => handleDelete(token.id)} class="delete-btn">
-                    Revoke
-                  </button>
-                )}
+                <button onClick={() => handleDelete(token.id)} class="delete-btn">
+                  Revoke
+                </button>
               </div>
             )
           })

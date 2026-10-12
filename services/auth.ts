@@ -5,12 +5,22 @@ import type { User } from '../kysely-db'
 
 export type AuthContext = {
   user: User | null
+  kind: 'session' | 'api_key' | null
   tokenPermissions: string | null
   projectId: string | null
 }
 
+// Account-level auth can manage projects and API keys: a GitHub user's
+// dashboard session, or an unscoped admin API key. Project-scoped keys and
+// anonymous (workspace-only) sessions cannot.
+export function isAccountAuth(auth: AuthContext): boolean {
+  if (!auth.user) return false
+  if (auth.kind === 'session') return auth.user.kind === 'github'
+  return auth.tokenPermissions === 'admin' && auth.projectId === null
+}
+
 export async function extractAuth(req: Request): Promise<AuthContext> {
-  const ctx: AuthContext = { user: null, tokenPermissions: null, projectId: null }
+  const ctx: AuthContext = { user: null, kind: null, tokenPermissions: null, projectId: null }
 
   const authHeader = req.headers.get('Authorization')
   if (!authHeader?.startsWith('Bearer ')) return ctx
@@ -22,7 +32,10 @@ export async function extractAuth(req: Request): Promise<AuthContext> {
   // workspace_members role instead of tokenPermissions.
   if (token.startsWith('jds_')) {
     const user = await getUserBySessionToken(token)
-    if (user) ctx.user = user
+    if (user) {
+      ctx.user = user
+      ctx.kind = 'session'
+    }
     return ctx
   }
 
@@ -33,6 +46,7 @@ export async function extractAuth(req: Request): Promise<AuthContext> {
   if (!user) return ctx
 
   ctx.user = user
+  ctx.kind = 'api_key'
   ctx.tokenPermissions = apiToken.permissions
   ctx.projectId = apiToken.project_id
   return ctx

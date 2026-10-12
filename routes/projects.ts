@@ -1,13 +1,12 @@
 import type { Context } from 'hono'
-import { createProject, listProjects, getProject, deleteProject } from '../services'
+import { createProject, listProjects, getProject, deleteProject, isAccountAuth } from '../services'
 import { createProjectSchema, formatZodError } from '../schemas'
 import { badRequest, unauthenticated, forbidden, notFound } from './errors'
 
 export async function handleCreateProject(c: Context): Promise<Response> {
   const auth = c.get('auth')
-  if (!auth.user) {
-    return unauthenticated(c)
-  }
+  if (!auth.user) return unauthenticated(c)
+  if (!isAccountAuth(auth)) return forbidden(c, 'Requires a dashboard session or account key')
 
   const rawBody = await c.req.json().catch(() => ({}))
   const parsed = createProjectSchema.safeParse(rawBody)
@@ -29,11 +28,18 @@ export async function handleCreateProject(c: Context): Promise<Response> {
 
 export async function handleListProjects(c: Context): Promise<Response> {
   const auth = c.get('auth')
-  if (!auth.user) {
-    return unauthenticated(c)
-  }
+  if (!auth.user) return unauthenticated(c)
 
-  const projects = await listProjects(auth.user.id)
+  // A project-scoped key sees only its own project.
+  let projects
+  if (isAccountAuth(auth)) {
+    projects = await listProjects(auth.user.id)
+  } else if (auth.projectId) {
+    const own = await getProject(auth.projectId)
+    projects = own ? [own] : []
+  } else {
+    return forbidden(c, 'Requires a dashboard session or account key')
+  }
 
   return c.json(
     projects.map((p) => ({
@@ -46,9 +52,8 @@ export async function handleListProjects(c: Context): Promise<Response> {
 
 export async function handleDeleteProject(c: Context): Promise<Response> {
   const auth = c.get('auth')
-  if (!auth.user || auth.tokenPermissions !== 'admin') {
-    return unauthenticated(c, 'Unauthorized')
-  }
+  if (!auth.user) return unauthenticated(c)
+  if (!isAccountAuth(auth)) return forbidden(c, 'Requires a dashboard session or account key')
 
   const id = c.req.param('id')!
 

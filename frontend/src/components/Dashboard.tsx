@@ -4,6 +4,7 @@ import { TokenManager } from './TokenManager'
 import { DocManager } from './DocManager'
 import { CurlGuide } from './CurlGuide'
 import { WorkspacesView } from './WorkspacesView'
+import { api } from '../api'
 
 type User = {
   id: number
@@ -21,7 +22,9 @@ export function Dashboard({ user, onLogout }: Props) {
   const [projectId, setProjectId] = useState<string | null>(null)
   const [view, setView] = useState<'personal' | 'workspaces'>('personal')
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Revoke the session server-side; log out locally even if that fails.
+    await api('/api/auth/logout', { method: 'POST' }).catch(() => {})
     localStorage.removeItem('token')
     onLogout()
   }

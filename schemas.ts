@@ -20,11 +20,19 @@ export const createProjectSchema = z.object({
   name: z.string().min(1).max(100),
 })
 
-export const createTokenSchema = z.object({
-  name: z.string().default('Unnamed token'),
-  permissions: z.enum(['read', 'write', 'read_write', 'admin']).default('read_write'),
-  project_id: z.string().optional(),
-})
+// Account keys (admin) manage projects and keys and are never tied to a
+// project. Project keys (read, read_write) only touch one project's documents.
+// Legacy 'write' keys still authenticate but can no longer be created.
+export const createTokenSchema = z
+  .object({
+    name: z.string().default('Unnamed token'),
+    permissions: z.enum(['read', 'read_write', 'admin']).default('read_write'),
+    project_id: z.string().optional(),
+  })
+  .refine((t) => (t.permissions === 'admin') === !t.project_id, {
+    message: 'admin keys cannot have a project_id; read and read_write keys require one',
+    path: ['project_id'],
+  })
 
 export const upsertDocSchema = z.object({
   content: z.unknown().default({}),

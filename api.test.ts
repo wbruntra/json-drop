@@ -64,7 +64,7 @@ describe('API Tokens', () => {
     const res = await fetch(`${baseUrl}/api/tokens`, {
       method: 'POST',
       headers: { ...authHeader(adminToken), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'My Token', permissions: 'read_write' }),
+      body: JSON.stringify({ name: 'My Token', permissions: 'admin' }),
     })
 
     expect(res.status).toBe(201)
@@ -77,9 +77,9 @@ describe('API Tokens', () => {
     const res = await fetch(`${baseUrl}/api/tokens`, {
       method: 'POST',
       headers: { ...authHeader(readToken), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'New Token', permissions: 'read' }),
+      body: JSON.stringify({ name: 'New Token', permissions: 'admin' }),
     })
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(403)
   })
 
   test('GET /api/tokens lists user tokens', async () => {

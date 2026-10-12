@@ -1,16 +1,21 @@
 import type { Context } from 'hono'
 import { generateToken } from '../middleware'
-import { createApiToken, listApiTokens, revokeApiToken, getProject } from '../services'
+import {
+  createApiToken,
+  listApiTokens,
+  revokeApiToken,
+  getProject,
+  isAccountAuth,
+} from '../services'
 import { createTokenSchema, formatZodError } from '../schemas'
 import { badRequest, unauthenticated, forbidden, notFound } from './errors'
 
 export async function handleCreateToken(c: Context): Promise<Response> {
   const auth = c.get('auth')
-  if (!auth.user || auth.tokenPermissions !== 'admin') {
-    return unauthenticated(c, 'Unauthorized')
-  }
+  if (!auth.user) return unauthenticated(c)
+  if (!isAccountAuth(auth)) return forbidden(c, 'Requires a dashboard session or account key')
 
-  const rawBody = await c.req.json()
+  const rawBody = await c.req.json().catch(() => ({}))
   const parsed = createTokenSchema.safeParse(rawBody)
   if (!parsed.success) {
     return badRequest(c, formatZodError(parsed.error))
@@ -52,11 +57,10 @@ export async function handleCreateToken(c: Context): Promise<Response> {
 
 export async function handleListTokens(c: Context): Promise<Response> {
   const auth = c.get('auth')
-  if (!auth.user) {
-    return unauthenticated(c)
-  }
+  if (!auth.user) return unauthenticated(c)
+  if (!isAccountAuth(auth)) return forbidden(c, 'Requires a dashboard session or account key')
 
-  const tokens = await listApiTokens(auth.user.id)
+  const tokens = await listApiTokens(auth.user.id, c.req.query('project') ?? null)
 
   return c.json(
     tokens.map((t) => ({
@@ -72,9 +76,8 @@ export async function handleListTokens(c: Context): Promise<Response> {
 
 export async function handleDeleteToken(c: Context): Promise<Response> {
   const auth = c.get('auth')
-  if (!auth.user || auth.tokenPermissions !== 'admin') {
-    return unauthenticated(c, 'Unauthorized')
-  }
+  if (!auth.user) return unauthenticated(c)
+  if (!isAccountAuth(auth)) return forbidden(c, 'Requires a dashboard session or account key')
 
   const id = parseInt(c.req.param('id')!, 10)
   if (isNaN(id)) {

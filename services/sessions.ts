@@ -80,3 +80,13 @@ export async function getUserBySessionToken(token: string): Promise<User | null>
     .executeTakeFirst()
   return result ?? null
 }
+
+export async function revokeSessionByToken(token: string): Promise<boolean> {
+  const result = await getDb()
+    .updateTable('sessions')
+    .set({ revoked_at: new Date().toISOString() })
+    .where('token_hash', '=', hashToken(token))
+    .where('revoked_at', 'is', null)
+    .executeTakeFirst()
+  return result.numUpdatedRows > 0
+}

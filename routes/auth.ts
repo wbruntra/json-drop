@@ -1,7 +1,7 @@
 import type { Context } from 'hono'
 import { getGitHubAuthUrl, exchangeGitHubCode, getGitHubUser, generateState } from '../auth'
-import { createUser, createApiToken } from '../services'
-import { generateToken } from '../middleware'
+import { createUser } from '../services'
+import { createSessionForUser, revokeSessionByToken } from '../services/sessions'
 
 const pendingStates = new Map<string, number>()
 
@@ -54,12 +54,12 @@ export async function handleGitHubCallback(c: Context): Promise<Response> {
 
     const user = await createUser(ghUser.id, ghUser.email, ghUser.name || ghUser.login)
 
-    const rawToken = generateToken()
-    await createApiToken(user.id, 'Default Token', rawToken, 'admin')
+    // The dashboard authenticates with a revocable session, not an API key.
+    const { token } = await createSessionForUser(user.id)
 
     const html = `<!doctype html>
 <html><body><script>
-localStorage.setItem('token', '${rawToken}')
+localStorage.setItem('token', '${token}')
 window.location.href = '${frontendUrl}'
 </script></body></html>`
 
@@ -76,14 +76,11 @@ window.location.href = '${frontendUrl}'
   }
 }
 
-export function handleLogout(): Response {
-  const html = `<!doctype html>
-<html><body><script>
-localStorage.removeItem('token')
-window.location.href = '/'
-</script></body></html>`
-
-  return new Response(html, {
-    headers: { 'Content-Type': 'text/html' },
-  })
+export async function handleLogout(c: Context): Promise<Response> {
+  const auth = c.get('auth')
+  const header = c.req.header('Authorization')
+  if (auth.kind === 'session' && header?.startsWith('Bearer ')) {
+    await revokeSessionByToken(header.slice(7))
+  }
+  return c.json({ logged_out: true })
 }

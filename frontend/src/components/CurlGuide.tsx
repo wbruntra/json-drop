@@ -1,5 +1,4 @@
 import { useState } from 'preact/hooks'
-import { getToken } from '../api'
 
 type Props = {
   projectId: string | null
@@ -11,7 +10,7 @@ export function CurlGuide({ projectId }: Props) {
   const [docId] = useState('abc123')
   const [secret] = useState('your-secret-here')
   const [exampleProjectId] = useState('proj_abc')
-  const token = getToken() || '${YOUR_API_TOKEN}'
+  const token = 'YOUR_API_TOKEN'
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
 
@@ -97,7 +96,7 @@ npm install @wbruntra/json-drop`}</code>
 
 const db = new JsonDrop({
   baseUrl: '${baseUrl}',
-  token: ${token !== '${YOUR_API_TOKEN}' ? `'${token}'` : `'YOUR_API_TOKEN'`}, // authenticate requests
+  token: '${token}', // a project key from the API Tokens panel
   ${projectId ? `project: '${projectId}', // scope anonymous operations to this project` : `project: 'YOUR_PROJECT_ID', // scope anonymous operations to this project`}
   // secret: 'your-optional-access-secret' // default access secret for private docs
 })`}</code>
@@ -116,7 +115,7 @@ const db = new JsonDrop({
             <span class="curl-label">Sign in (browser only):</span>
             <code>GET /api/auth/github</code>
             <span class="curl-note">
-              Redirects to GitHub OAuth, stores API token in localStorage. Dev mode skips GitHub.
+              Redirects to GitHub OAuth and starts a dashboard session. Dev mode skips GitHub.
             </span>
           </div>
 
@@ -198,7 +197,7 @@ await db.projects.delete('${exampleProjectId}')`}</code>
 
           <h4>API Token Management</h4>
           <div class="curl-block">
-            <span class="curl-label">Create a token (admin required):</span>
+            <span class="curl-label">Create a token (account key required):</span>
             {lang === 'curl' && (
               <pre>
                 <code>{`curl -X POST ${baseUrl}/api/tokens \\
@@ -227,8 +226,9 @@ await db.projects.delete('${exampleProjectId}')`}</code>
               </pre>
             )}
             <span class="curl-note">
-              Permissions: <code>read</code>, <code>write</code>, <code>read_write</code>,{' '}
-              <code>admin</code>. Add <code>project_id</code> to scope a token to a single project.
+              Project keys: <code>read</code> or <code>read_write</code>, and they require a{' '}
+              <code>project_id</code>. Account keys: <code>admin</code>, with no{' '}
+              <code>project_id</code>. Only the dashboard or an account key can manage keys.
             </span>
           </div>
 
