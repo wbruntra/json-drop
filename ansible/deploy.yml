@@ -1,0 +1,133 @@
+---
+# Deploy json-drop: ansible-playbook ansible/deploy.yml -e deployment=production
+# Deploys origin/<target_branch> from GitHub, so push first.
+- name: Deploy json-drop
+  hosts: '{{ deployment | mandatory("Pass -e deployment=<profile>, e.g. -e deployment=production") }}'
+  vars:
+    node_bin_dir: '/home/{{ ansible_user }}/.nvm/versions/node/{{ pm2_node_version }}/bin'
+    env_bundle: '{{ playbook_dir }}/files/{{ deployment }}/.env'
+
+  tasks:
+    - name: 1. Update repository
+      # force discards local edits in the checkout (e.g. a regenerated
+      # kysely-types.ts timestamp).
+      git:
+        repo: 'git@github.com:wbruntra/json-drop.git'
+        dest: '{{ project_root }}'
+        version: '{{ branch | default(target_branch) }}'
+        force: yes
+      register: git_result
+      tags: [git]
+
+    - name: 2. Copy .env from the local secrets bundle, if present
+      # The server's .env is the source of truth until files/<profile>/.env
+      # exists locally; without it this step leaves the server's file alone.
+      copy:
+        src: '{{ env_bundle }}'
+        dest: '{{ project_root }}/.env'
+        mode: '0600'
+      when: lookup('ansible.builtin.fileglob', env_bundle) | length > 0
+      tags: [secrets]
+
+    - name: 3. Install dependencies
+      command: bun install --frozen-lockfile
+      args:
+        chdir: '{{ project_root }}'
+      tags: [deps]
+
+    - name: 4. Back up and migrate the database
+      block:
+        - name: Ensure backup directory exists
+          file:
+            path: '{{ project_root }}/backups'
+            state: directory
+            mode: '0700'
+
+        - name: Back up the SQLite database
+          # .backup takes a consistent copy even while the app has the
+          # database open in WAL mode.
+          command: >-
+            sqlite3 {{ db_file }}
+            ".backup backups/{{ db_file }}.{{ (git_result.before or 'initial')[:7] }}.{{ ansible_date_time.iso8601_basic_short }}"
+          args:
+            chdir: '{{ project_root }}'
+            removes: '{{ project_root }}/{{ db_file }}'
+
+        - name: Keep only the 10 newest backups
+          shell: ls -1t {{ db_file }}.* | tail -n +11 | xargs -r rm --
+          args:
+            chdir: '{{ project_root }}/backups'
+          changed_when: false
+          when: not ansible_check_mode
+
+        - name: Run migrations
+          command: bun run migrate
+          args:
+            chdir: '{{ project_root }}'
+          register: migrate_result
+          changed_when: "'Applied migration' in migrate_result.stdout"
+      tags: [migrate, db]
+
+    - name: 5. Build frontend
+      command: bun run build:frontend
+      args:
+        chdir: '{{ project_root }}'
+      tags: [build, frontend]
+
+    - name: 6. Restart the app (pm2)
+      environment:
+        # pm2 lives under nvm, which a non-interactive shell doesn't put on PATH.
+        PATH: '{{ node_bin_dir }}:{{ ansible_env.PATH }}'
+      block:
+        - name: Start or restart from ecosystem.config.cjs
+          command: pm2 startOrRestart ecosystem.config.cjs --update-env
+          args:
+            chdir: '{{ project_root }}'
+
+        - name: Persist the pm2 process list
+          command: pm2 save
+      tags: [pm2, restart]
+
+    - name: 7. Verify the app answers on its port
+      # /api/me without a token returns 401 + {"code":"unauthenticated"} once
+      # the server has booted and the routes are mounted.
+      uri:
+        url: 'http://127.0.0.1:{{ app_port }}/api/me'
+        status_code: 401
+        timeout: 10
+      register: local_check
+      failed_when: local_check.status != 401 or (local_check.json.code | default('')) != 'unauthenticated'
+      retries: 6
+      delay: 5
+      until: local_check is succeeded
+      changed_when: false
+      tags: [verify]
+
+    - name: 8. Verify the public site through nginx and waker
+      # Runs from the machine running Ansible, so it also catches DNS, TLS
+      # and nginx problems.
+      delegate_to: localhost
+      block:
+        - name: Frontend loads
+          uri:
+            url: '{{ public_url }}/'
+            return_content: yes
+          register: public_page
+          failed_when: '''<div id="app">'' not in public_page.content'
+          changed_when: false
+
+        - name: API answers
+          uri:
+            url: '{{ public_url }}/api/me'
+            status_code: 401
+          register: public_api
+          retries: 3
+          delay: 5
+          until: public_api is succeeded
+          changed_when: false
+      tags: [verify]
+
+    - name: Deployed
+      debug:
+        msg: '{{ deployment }} is at {{ git_result.after[:7] }} (was {{ git_result.before[:7] if git_result.before else "none" }})'
+      tags: [git]

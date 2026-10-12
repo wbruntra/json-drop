@@ -1,0 +1,14 @@
+---
+# json-drop.bruntrager.win on gaybor_new. Requests go
+# nginx -> waker (127.0.0.1:8000, ~/sysperf/waker) -> json-drop (app_port).
+# waker starts and stops the pm2 process on demand, so it may be stopped
+# between deploys; the restart step starts it either way.
+project_root: /home/william/web/json-drop
+target_branch: master
+pm2_name: json-drop
+pm2_node_version: v24.12.0
+# Must match PORT in ecosystem.config.cjs and the json-drop entry in
+# ~/sysperf/waker/apps.config.ts.
+app_port: 11099
+public_url: https://json-drop.bruntrager.win
+db_file: db.sqlite

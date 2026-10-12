@@ -1,0 +1,28 @@
+---
+# Update the nginx site config: ansible-playbook ansible/deploy-nginx.yml -e deployment=production
+# Copies deploy/nginx.json-drop.conf to ~/nginx/sites (included from
+# /etc/nginx/nginx.conf), tests it, and reloads nginx. Needs sudo for the
+# test and reload, so pass -K if sudo asks for a password.
+- name: Deploy json-drop nginx config
+  hosts: '{{ deployment | mandatory("Pass -e deployment=<profile>, e.g. -e deployment=production") }}'
+  tasks:
+    - name: Copy site config
+      copy:
+        src: '{{ playbook_dir }}/../deploy/nginx.json-drop.conf'
+        dest: '/home/{{ ansible_user }}/nginx/sites/json-drop.conf'
+        mode: '0644'
+        backup: yes
+      register: nginx_conf
+
+    - name: Test nginx configuration
+      command: nginx -t
+      become: yes
+      changed_when: false
+      when: nginx_conf is changed
+
+    - name: Reload nginx
+      service:
+        name: nginx
+        state: reloaded
+      become: yes
+      when: nginx_conf is changed

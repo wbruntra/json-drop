@@ -11,6 +11,7 @@
     "migrate": "bun migrate.ts",
     "codegen": "bun run codegen.ts",
     "build:frontend": "bun build frontend/index.html --outdir frontend/dist --minify && cp -r frontend/public/* frontend/dist/",
+    "deploy": "ansible-playbook ansible/deploy.yml -e deployment=production",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky",
