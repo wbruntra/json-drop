@@ -4,6 +4,7 @@ import { href, useRoute } from '../router'
 import { ProjectsHome } from './ProjectsHome'
 import { ProjectDetail } from './ProjectDetail'
 import { Account } from './Account'
+import { Docs } from './Docs'
 
 export type User = {
   id: number
@@ -71,9 +72,18 @@ export function Shell({ user, onLogout }: Props) {
                 <span class="crumb crumb-current">Account</span>
               </>
             )}
+            {section === 'docs' && (
+              <>
+                <span class="crumb-sep">/</span>
+                <span class="crumb crumb-current">Docs</span>
+              </>
+            )}
           </nav>
 
           <div class="user-info">
+            <a class={`crumb ${section === 'docs' ? 'crumb-current' : ''}`} href={href('docs')}>
+              Docs
+            </a>
             <a
               class={`crumb ${section === 'account' ? 'crumb-current' : ''}`}
               href={href('account')}
@@ -91,6 +101,8 @@ export function Shell({ user, onLogout }: Props) {
       <main class="dashboard-container">
         {inProject ? (
           <ProjectDetail key={id} projectId={id!} tab={tab} user={user} onName={setProjectName} />
+        ) : section === 'docs' ? (
+          <Docs />
         ) : section === 'account' ? (
           <Account user={user} />
         ) : (
